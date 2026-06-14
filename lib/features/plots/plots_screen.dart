@@ -7,9 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_card.dart';
-import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../core/widgets/section_header.dart';
 
 // ── Map layer definitions ─────────────────────────────
 enum _MapLayer { street, satellite, terrain, topo }
@@ -38,30 +36,14 @@ extension _MapLayerX on _MapLayer {
       case _MapLayer.street:
         return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       case _MapLayer.satellite:
-        // Esri World Imagery — free, no key required
         return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
       case _MapLayer.terrain:
-        // Esri World Terrain Base
         return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}';
       case _MapLayer.topo:
-        // OpenTopoMap
         return 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
     }
   }
 
-  String get attribution {
-    switch (this) {
-      case _MapLayer.street:
-        return '© OpenStreetMap contributors';
-      case _MapLayer.satellite:
-      case _MapLayer.terrain:
-        return '© Esri, Maxar, Earthstar Geographics';
-      case _MapLayer.topo:
-        return '© OpenTopoMap, © OpenStreetMap contributors';
-    }
-  }
-
-  // Polygon opacity looks better on dark satellite tiles
   bool get isDark => this == _MapLayer.satellite;
 }
 
@@ -135,61 +117,122 @@ class PlotsScreen extends StatefulWidget {
   State<PlotsScreen> createState() => _PlotsScreenState();
 }
 
-class _PlotsScreenState extends State<PlotsScreen> {
+class _PlotsScreenState extends State<PlotsScreen>
+    with TickerProviderStateMixin {
   final _mapController = MapController();
   String? _selectedPlotId;
   bool _showList = false;
   _MapLayer _activeLayer = _MapLayer.street;
-  bool _showLayerPicker = false;
+
+  // For animating the selected plot detail card
+  late final AnimationController _detailAnim;
+  late final Animation<Offset> _detailSlide;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    );
+    _detailSlide = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _detailAnim, curve: Curves.easeOutCubic));
+  }
+
+  @override
+  void dispose() {
+    _detailAnim.dispose();
+    super.dispose();
+  }
+
+  Map<String, dynamic>? get _selectedPlot => _selectedPlotId == null
+      ? null
+      : _fakePlots.firstWhere((p) => p['id'] == _selectedPlotId,
+          orElse: () => {});
 
   double get _totalArea =>
       _fakePlots.fold(0.0, (sum, p) => sum + (p['areaHa'] as double));
 
-  Set<String> get _uniqueCrops =>
-      _fakePlots.map((p) => p['crop'] as String).toSet();
+  int get _uniqueFarmerCount =>
+      _fakePlots.map((p) => p['farmerId']).toSet().length;
+
+  void _selectPlot(String id, LatLng center) {
+    final isSame = _selectedPlotId == id;
+    setState(() {
+      _selectedPlotId = isSame ? null : id;
+      _showList = false;
+    });
+    if (isSame) {
+      _detailAnim.reverse();
+    } else {
+      _mapController.move(center, 15.5);
+      _detailAnim.forward(from: 0);
+    }
+  }
+
+  void _clearSelection() {
+    setState(() => _selectedPlotId = null);
+    _detailAnim.reverse();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // ── Map ──────────────────────────────────
+          // ── Full-screen map ───────────────────────
           _buildMap(),
 
-          // ── Top summary bar ───────────────────────
+          // ── Top bar ───────────────────────────────
           Positioned(
-            top: 0, left: 0, right: 0,
-            child: _buildSummaryBar(),
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 12,
+            right: 12,
+            child: _buildTopBar(),
           ),
 
-          // ── Layer picker (top-right) ──────────────
-          Positioned(
-            top: 12, right: 16,
-            child: _buildLayerToggle(),
-          ),
-
-          // ── Layer picker popup ────────────────────
-          if (_showLayerPicker)
+          // ── Selected plot detail card ─────────────
+          if (_selectedPlot != null)
             Positioned(
-              top: 60, right: 16,
-              child: _buildLayerPicker(),
+              left: 12,
+              right: 12,
+              bottom: bottomPad + 80,
+              child: SlideTransition(
+                position: _detailSlide,
+                child: _PlotDetailCard(
+                  plot: _selectedPlot!,
+                  plotColor: _plotColors[
+                      _fakePlots.indexWhere((p) => p['id'] == _selectedPlotId) %
+                          _plotColors.length],
+                  onClose: _clearSelection,
+                  onNavigate: () {
+                    // TODO: navigate to plot detail screen
+                  },
+                ),
+              ),
             ),
 
-          // ── Bottom toggle ─────────────────────────
-          if (!_showList)
+          // ── Bottom action bar ─────────────────────
+          if (_selectedPlot == null)
             Positioned(
-              bottom: 88, left: 16, right: 16,
-              child: _buildBottomToggle(),
+              left: 12,
+              right: 12,
+              bottom: bottomPad + 12,
+              child: _buildBottomActions(),
             ),
 
-          // ── Plot list panel ───────────────────────
+          // ── Plot list sheet ───────────────────────
           AnimatedSlide(
             offset: _showList ? Offset.zero : const Offset(0, 1),
             duration: const Duration(milliseconds: 260),
             curve: Curves.easeOutCubic,
             child: AnimatedOpacity(
-              opacity: _showList ? 1 : 0,
+              opacity: _showList ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 200),
               child: Align(
                 alignment: Alignment.bottomCenter,
@@ -199,13 +242,190 @@ class _PlotsScreenState extends State<PlotsScreen> {
           ),
         ],
       ),
-      floatingActionButton: _AddPlotButton(
-        onTap: () => context.push('/add-plot'),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
+  // ── Top bar: summary + layer switcher ────────────
+  Widget _buildTopBar() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary chip
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface.withOpacity(0.97),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.09),
+                  blurRadius: 12,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Plots count
+                _StatPill(
+                  icon: Icons.crop_square_rounded,
+                  value: '${_fakePlots.length}',
+                  label: 'plots',
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 6),
+                Text('·', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+                const SizedBox(width: 6),
+                // Total area
+                _StatPill(
+                  icon: Icons.straighten_outlined,
+                  value: '${_totalArea.toStringAsFixed(1)}',
+                  label: 'ha',
+                  color: AppColors.accent,
+                ),
+                const SizedBox(width: 6),
+                Text('·', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+                const SizedBox(width: 6),
+                // Farmers
+                _StatPill(
+                  icon: Icons.people_outline,
+                  value: '$_uniqueFarmerCount',
+                  label: 'farmers',
+                  color: const Color(0xFF7B61FF),
+                ),
+                const Spacer(),
+                // Inline crop chip — handles tight width without overflowing
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 88),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD8F3DC),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.grass, size: 11, color: Color(0xFF2D6A4F)),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          'Turmeric',
+                          style: AppTextStyles.caption.copyWith(
+                            color: const Color(0xFF2D6A4F),
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Layer switcher
+        _LayerSwitcher(
+          activeLayer: _activeLayer,
+          onLayerChanged: (l) => setState(() => _activeLayer = l),
+        ),
+      ],
+    );
+  }
+
+  // ── Bottom action bar ─────────────────────────────
+  Widget _buildBottomActions() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withOpacity(0.97),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Show list button
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _showList = true),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.view_list_rounded,
+                        size: 17, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Plot List',
+                      style: AppTextStyles.label.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Add plot button
+          Expanded(
+            child: GestureDetector(
+              onTap: () => context.push('/add-plot'),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.add_location_alt_rounded,
+                        size: 17, color: Colors.white),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Add Plot',
+                      style: AppTextStyles.label.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Map ───────────────────────────────────────────
   Widget _buildMap() {
     final isDark = _activeLayer.isDark;
     return FlutterMap(
@@ -223,62 +443,77 @@ class _PlotsScreenState extends State<PlotsScreen> {
         PolygonLayer(
           polygons: _fakePlots.asMap().entries.map((e) {
             final plot = e.value;
-            final color = isDark ? Colors.white : _plotColors[e.key % _plotColors.length];
+            final color = isDark
+                ? Colors.white
+                : _plotColors[e.key % _plotColors.length];
             final isSelected = _selectedPlotId == plot['id'];
             return Polygon(
               points: plot['boundary'] as List<LatLng>,
-              color: color.withOpacity(isSelected ? 0.35 : 0.18),
+              color: color.withOpacity(isSelected ? 0.38 : 0.15),
               borderColor: isSelected
                   ? (isDark ? Colors.yellowAccent : AppColors.warning)
-                  : color,
-              borderStrokeWidth: isSelected ? 3 : 1.5,
+                  : color.withOpacity(isSelected ? 1 : 0.8),
+              borderStrokeWidth: isSelected ? 3 : 1.8,
             );
           }).toList(),
         ),
         MarkerLayer(
-          markers: _fakePlots.map((plot) {
+          markers: _fakePlots.asMap().entries.map((e) {
+            final plot = e.value;
+            final color = _plotColors[e.key % _plotColors.length];
             final isSelected = _selectedPlotId == plot['id'];
             return Marker(
               point: plot['center'] as LatLng,
-              width: 120,
-              height: 32,
+              width: 130,
+              height: 40,
               child: GestureDetector(
                 onTap: () => _selectPlot(
                     plot['id'] as String, plot['center'] as LatLng),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.primary
-                        : (isDark
-                            ? Colors.black.withOpacity(0.65)
-                            : AppColors.surface),
-                    borderRadius: BorderRadius.circular(6),
+                    color: isSelected ? color : AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: isSelected
-                          ? AppColors.primary
-                          : (isDark ? Colors.white30 : AppColors.border),
+                      color: isSelected ? color : color.withOpacity(0.5),
+                      width: isSelected ? 0 : 1.5,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.18),
-                        blurRadius: 6,
+                        color: color.withOpacity(isSelected ? 0.35 : 0.15),
+                        blurRadius: isSelected ? 10 : 5,
                         offset: const Offset(0, 2),
                       ),
                     ],
                   ),
-                  child: Text(
-                    plot['name'] as String,
-                    style: AppTextStyles.caption.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: isSelected
-                          ? Colors.white
-                          : (isDark ? Colors.white : AppColors.textPrimary),
-                    ),
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.white : color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          plot['name'] as String,
+                          style: AppTextStyles.caption.copyWith(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                            color: isSelected
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -289,211 +524,19 @@ class _PlotsScreenState extends State<PlotsScreen> {
     );
   }
 
-  // Small icon button that opens the picker
-  Widget _buildLayerToggle() {
-    return GestureDetector(
-      onTap: () => setState(() => _showLayerPicker = !_showLayerPicker),
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: _showLayerPicker ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Icon(
-          Icons.layers_outlined,
-          size: 20,
-          color: _showLayerPicker ? Colors.white : AppColors.textPrimary,
-        ),
-      ),
-    );
-  }
-
-  // Dropdown card with all layer options
-  Widget _buildLayerPicker() {
-    return Container(
-      width: 160,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: _MapLayer.values.map((layer) {
-          final isActive = layer == _activeLayer;
-          final isLast = layer == _MapLayer.values.last;
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                _activeLayer = layer;
-                _showLayerPicker = false;
-              });
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              decoration: BoxDecoration(
-                color: isActive
-                    ? AppColors.successBg
-                    : Colors.transparent,
-                borderRadius: BorderRadius.vertical(
-                  top: layer == _MapLayer.values.first
-                      ? const Radius.circular(12)
-                      : Radius.zero,
-                  bottom: isLast ? const Radius.circular(12) : Radius.zero,
-                ),
-                border: isLast
-                    ? null
-                    : const Border(
-                        bottom: BorderSide(color: AppColors.border, width: 0.5),
-                      ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    layer.icon,
-                    size: 16,
-                    color: isActive ? AppColors.primary : AppColors.textDisabled,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    layer.label,
-                    style: AppTextStyles.label.copyWith(
-                      color: isActive
-                          ? AppColors.primary
-                          : AppColors.textPrimary,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                  if (isActive) ...[
-                    const Spacer(),
-                    const Icon(Icons.check,
-                        size: 14, color: AppColors.primary),
-                  ],
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildSummaryBar() {
-    return Container(
-      // leave right side clear for the layer toggle button
-      margin: const EdgeInsets.fromLTRB(16, 12, 64, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.map_outlined, size: 16, color: AppColors.accent),
-          const SizedBox(width: 8),
-          Text(
-            '${_fakePlots.length} Plot${_fakePlots.length == 1 ? '' : 's'}',
-            style: AppTextStyles.label,
-          ),
-          const SizedBox(width: 6),
-          Text('·',
-              style: AppTextStyles.caption
-                  .copyWith(color: AppColors.textDisabled)),
-          const SizedBox(width: 6),
-          Text(
-            '${_totalArea.toStringAsFixed(1)} ha',
-            style: AppTextStyles.caption,
-          ),
-          const Spacer(),
-          ..._uniqueCrops.map(
-            (crop) => Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: AppBadge(
-                label: crop,
-                variant: BadgeVariant.success,
-                icon: Icons.grass,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomToggle() {
-    return GestureDetector(
-      onTap: () => setState(() {
-        _showList = true;
-        _showLayerPicker = false;
-      }),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withOpacity(0.35),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.view_list_rounded, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              'Show Plot List',
-              style: AppTextStyles.label.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  // ── Plot list bottom sheet ────────────────────────
   Widget _buildPlotListSheet() {
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.55,
+        maxHeight: MediaQuery.of(context).size.height * 0.58,
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
-            blurRadius: 16,
+            blurRadius: 20,
             offset: Offset(0, -4),
           ),
         ],
@@ -501,38 +544,66 @@ class _PlotsScreenState extends State<PlotsScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Drag handle
           Container(
             margin: const EdgeInsets.only(top: 10),
-            width: 40,
+            width: 36,
             height: 4,
             decoration: BoxDecoration(
               color: AppColors.border,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
+          // Header
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
             child: Row(
               children: [
                 Text('All Plots', style: AppTextStyles.h3),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_fakePlots.length}',
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
                 const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.map_rounded,
-                      color: AppColors.textDisabled, size: 20),
-                  tooltip: 'Back to map',
-                  onPressed: () => setState(() => _showList = false),
+                // Close
+                GestureDetector(
+                  onTap: () => setState(() => _showList = false),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Icon(Icons.close,
+                        size: 16, color: AppColors.textSecondary),
+                  ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 10),
           const Divider(height: 1),
           Flexible(
             child: _fakePlots.isEmpty
                 ? const EmptyState.noPlots()
                 : ListView.separated(
                     padding: EdgeInsets.fromLTRB(
-                      16, 12, 16,
-                      MediaQuery.of(context).padding.bottom + 16,
+                      12, 12, 12,
+                      MediaQuery.of(context).padding.bottom + 20,
                     ),
                     shrinkWrap: true,
                     itemCount: _fakePlots.length,
@@ -540,7 +611,8 @@ class _PlotsScreenState extends State<PlotsScreen> {
                     itemBuilder: (_, i) => _PlotListTile(
                       plot: _fakePlots[i],
                       plotColor: _plotColors[i % _plotColors.length],
-                      isSelected: _selectedPlotId == _fakePlots[i]['id'],
+                      isSelected:
+                          _selectedPlotId == _fakePlots[i]['id'],
                       onTap: () => _selectPlot(
                         _fakePlots[i]['id'] as String,
                         _fakePlots[i]['center'] as LatLng,
@@ -552,62 +624,362 @@ class _PlotsScreenState extends State<PlotsScreen> {
       ),
     );
   }
+}
 
-  void _selectPlot(String id, LatLng center) {
-    setState(() {
-      _selectedPlotId = _selectedPlotId == id ? null : id;
-      _showList = false;
-      _showLayerPicker = false;
-    });
-    _mapController.move(center, 15);
+// ── Stat pill widget ──────────────────────────────────
+class _StatPill extends StatelessWidget {
+  const _StatPill({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 4),
+        Text(
+          value,
+          style: AppTextStyles.labelLarge.copyWith(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 2),
+        Text(
+          label,
+          style: AppTextStyles.caption.copyWith(
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
   }
 }
 
-// ── Custom Add Plot Button ────────────────────────────
-class _AddPlotButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AddPlotButton({required this.onTap});
+// ── Layer switcher ────────────────────────────────────
+class _LayerSwitcher extends StatelessWidget {
+  const _LayerSwitcher({
+    required this.activeLayer,
+    required this.onLayerChanged,
+  });
+
+  final _MapLayer activeLayer;
+  final ValueChanged<_MapLayer> onLayerChanged;
+
+  void _showPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 6),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+              child: Text('Map Style', style: AppTextStyles.h3),
+            ),
+            const Divider(height: 1),
+            ...(_MapLayer.values.map((layer) {
+              final isActive = layer == activeLayer;
+              return ListTile(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? AppColors.primary.withOpacity(0.1)
+                        : AppColors.background,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    layer.icon,
+                    size: 18,
+                    color: isActive
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+                title: Text(
+                  layer.label,
+                  style: AppTextStyles.labelLarge.copyWith(
+                    color: isActive
+                        ? AppColors.primary
+                        : AppColors.textPrimary,
+                    fontWeight: isActive
+                        ? FontWeight.w700
+                        : FontWeight.normal,
+                  ),
+                ),
+                trailing: isActive
+                    ? Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.check,
+                            size: 13, color: Colors.white),
+                      )
+                    : null,
+                onTap: () {
+                  onLayerChanged(layer);
+                  Navigator.pop(context);
+                },
+              );
+            })),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => _showPicker(context),
       child: Container(
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 28),
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(26),
+          color: AppColors.surface.withOpacity(0.97),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.35),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+              color: Colors.black.withOpacity(0.09),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.add_location_alt_rounded,
-                color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Text(
-              'Add Plot',
-              style: AppTextStyles.label.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ],
+        child: const Icon(
+          Icons.layers_outlined,
+          size: 20,
+          color: AppColors.textPrimary,
         ),
       ),
     );
   }
 }
 
-// ── Plot List Tile ────────────────────────────────────
+// ── Selected plot detail card ─────────────────────────
+class _PlotDetailCard extends StatelessWidget {
+  const _PlotDetailCard({
+    required this.plot,
+    required this.plotColor,
+    required this.onClose,
+    required this.onNavigate,
+  });
+
+  final Map<String, dynamic> plot;
+  final Color plotColor;
+  final VoidCallback onClose;
+  final VoidCallback onNavigate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: plotColor.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: plotColor.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Coloured top accent bar
+          Container(
+            height: 4,
+            decoration: BoxDecoration(
+              color: plotColor,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(18)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Row 1: name + close
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(plot['name'] as String,
+                              style: AppTextStyles.h3),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              const Icon(Icons.person_outline,
+                                  size: 12,
+                                  color: AppColors.textSecondary),
+                              const SizedBox(width: 3),
+                              Text(
+                                plot['farmerName'] as String,
+                                style: AppTextStyles.caption,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Close
+                    GestureDetector(
+                      onTap: onClose,
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Icon(Icons.close,
+                            size: 14,
+                            color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Row 2: stat chips
+                Row(
+                  children: [
+                    _DetailChip(
+                      icon: Icons.straighten_outlined,
+                      label: '${plot['areaHa']} ha',
+                      color: plotColor,
+                    ),
+                    const SizedBox(width: 6),
+                    _DetailChip(
+                      icon: Icons.terrain_outlined,
+                      label: plot['soilType'] as String,
+                    ),
+                    const SizedBox(width: 6),
+                    _DetailChip(
+                      icon: Icons.water_drop_outlined,
+                      label: plot['irrigation'] as String,
+                    ),
+                    const Spacer(),
+                    // Navigate arrow
+                    GestureDetector(
+                      onTap: onNavigate,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: plotColor,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              'View',
+                              style: AppTextStyles.label.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.arrow_forward_rounded,
+                                size: 13, color: Colors.white),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailChip extends StatelessWidget {
+  const _DetailChip({
+    required this.icon,
+    required this.label,
+    this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: c.withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: c),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: AppTextStyles.caption.copyWith(
+              color: c,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Plot list tile ────────────────────────────────────
 class _PlotListTile extends StatelessWidget {
   final Map<String, dynamic> plot;
   final Color plotColor;
@@ -623,60 +995,144 @@ class _PlotListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      padding: EdgeInsets.zero,
-      borderColor: isSelected ? AppColors.primary : AppColors.border,
+    return GestureDetector(
       onTap: onTap,
-      child: IntrinsicHeight(
-        child: Row(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 4,
-              decoration: BoxDecoration(
-                color: isSelected ? plotColor : plotColor.withOpacity(0.4),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? plotColor.withOpacity(0.06)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? plotColor : AppColors.border,
+            width: isSelected ? 1.5 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: plotColor.withOpacity(0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              // Color bar
+              Container(
+                width: 4,
+                decoration: BoxDecoration(
+                  color: plotColor,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(14),
+                    bottomLeft: Radius.circular(14),
+                  ),
                 ),
               ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              // Farmer avatar
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: plotColor.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    (plot['farmerName'] as String)[0],
+                    style: AppTextStyles.labelLarge.copyWith(
+                      color: plotColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Name + area
+                      Row(
                         children: [
-                          Text(plot['name'] as String,
-                              style: AppTextStyles.h3),
-                          const SizedBox(height: 3),
-                          Text(
-                            '${plot['farmerName']}  ·  ${plot['soilType']}  ·  ${plot['irrigation']}',
-                            style: AppTextStyles.caption,
+                          Expanded(
+                            child: Text(
+                              plot['name'] as String,
+                              style: AppTextStyles.h3,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(right: 12),
+                            child: Text(
+                              '${plot['areaHa']} ha',
+                              style: AppTextStyles.labelLarge.copyWith(
+                                color: plotColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    AppFlatCard(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      child: Text(
-                        '${plot['areaHa']} ha',
-                        style: AppTextStyles.label.copyWith(
-                          color: AppColors.primary,
-                        ),
+                      const SizedBox(height: 4),
+                      // Farmer name
+                      Text(
+                        plot['farmerName'] as String,
+                        style: AppTextStyles.caption,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 6),
+                      // Tags row
+                      Row(
+                        children: [
+                          _MiniTag(plot['soilType'] as String),
+                          const SizedBox(width: 5),
+                          _MiniTag(plot['irrigation'] as String),
+                          const SizedBox(width: 5),
+                          _MiniTag(
+                            plot['crop'] as String,
+                            color: AppColors.success,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniTag extends StatelessWidget {
+  const _MiniTag(this.label, {this.color});
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.textDisabled;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label,
+        style: AppTextStyles.caption.copyWith(
+          fontSize: 10,
+          color: c,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
