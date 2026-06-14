@@ -1,5 +1,4 @@
 // core/constants/crop_constants.dart
-
 class CropConstants {
   CropConstants._();
 
@@ -14,11 +13,11 @@ class CropConstants {
 
   // ── Target yield (t/ha) per variety ───────────────
   static const Map<String, double> varietyYields = {
-    'IISR Pragati':    38.0,
-    'IISR Prabha':     32.0,
-    'Co-1':            25.0,
-    'BSS-1':           28.0,
-    'Rajendra Sonia':  35.0,
+    'IISR Pragati':   38.0,
+    'IISR Prabha':    32.0,
+    'Co-1':           25.0,
+    'BSS-1':          28.0,
+    'Rajendra Sonia': 35.0,
   };
 
   // ── Crop Growth Stages ─────────────────────────────
@@ -50,6 +49,14 @@ class CropConstants {
 
   // ── Crop season duration (days) ────────────────────
   static const int seasonDurationDays = 210;
+
+  // ── Fertiliser schedule (IISR Pragati default) ─────
+  static const Map<String, Map<String, double>> fertSchedule = {
+    'Basal (at planting)':     {'N': 0,  'P': 50, 'K': 50},
+    '1st Top dress (45 DAP)':  {'N': 50, 'P': 0,  'K': 0},
+    '2nd Top dress (90 DAP)':  {'N': 50, 'P': 0,  'K': 25},
+    '3rd Top dress (120 DAP)': {'N': 0,  'P': 0,  'K': 25},
+  };
 
   // ── Soil Types ─────────────────────────────────────
   static const List<String> soilTypes = [
@@ -113,30 +120,25 @@ class CropConstants {
   ];
 
   // ── Emission thresholds ────────────────────────────
-  static const double lowEmissionThresholdPerHa = 500.0; // kg CO2e/ha
+  static const double lowEmissionThresholdPerHa = 500.0;
 
   // ── IPCC Emission Factors ──────────────────────────
-  static const double ipccN2oEmissionFactor     = 0.0125; // 1.25% of N
-  static const double n2oGwp                    = 298.0;  // GWP100
-  static const double dieselCo2eFactor          = 2.68;   // kg CO2e/litre
-  static const double gridElectricityFactor     = 0.82;   // kg CO2e/kWh (India)
+  static const double ipccN2oEmissionFactor  = 0.0125; // 1.25% of N
+  static const double n2oGwp                 = 298.0;  // GWP100
+  static const double dieselCo2eFactor       = 2.68;   // kg CO2e/litre
+  static const double gridElectricityFactor  = 0.82;   // kg CO2e/kWh India
 
-  // ── UI helpers ────────────────────────────────────
-
-  /// Default yield for a variety (fallback 30 t/ha)
+  // ── UI helpers ─────────────────────────────────────
   static double defaultYield(String variety) =>
       varietyYields[variety] ?? 30.0;
 
-  /// Index of stage in pipeline (0-4)
   static int stageIndex(String stage) =>
       stages.indexOf(stage).clamp(0, 4);
 
-  /// Next stage after current
   static String? nextStage(String stage) {
     final i = stageIndex(stage);
     return i < stages.length - 1 ? stages[i + 1] : null;
   }
 
-  /// True if stage is the final one
   static bool isFinalStage(String stage) => stage == 'Harvest';
 }

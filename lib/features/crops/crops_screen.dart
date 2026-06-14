@@ -75,8 +75,7 @@ class _CropsScreenState extends State<CropsScreen> {
   String? _expandedId;
 
   List<Map<String, dynamic>> get _filtered => _fakeSeasons
-      .where((s) =>
-          _statusFilter == 'All' || s['status'] == _statusFilter)
+      .where((s) => _statusFilter == 'All' || s['status'] == _statusFilter)
       .toList();
 
   @override
@@ -91,7 +90,7 @@ class _CropsScreenState extends State<CropsScreen> {
             child: _filtered.isEmpty
                 ? const EmptyState.noSeasons()
                 : ListView.separated(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                     itemCount: _filtered.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (_, i) => _SeasonCard(
@@ -107,22 +106,19 @@ class _CropsScreenState extends State<CropsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/add-season'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Season'),
+      floatingActionButton: _AddSeasonButton(
+        onTap: () => context.push('/add-season'),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
   Widget _buildFilterChips() {
     return SizedBox(
-      height: 48,
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _statusFilters.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
@@ -140,6 +136,49 @@ class _CropsScreenState extends State<CropsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+// ── Custom Add Season Button ──────────────────────────
+class _AddSeasonButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddSeasonButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.yard_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              'Add Season',
+              style: AppTextStyles.label.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -167,17 +206,26 @@ class _SeasonCard extends StatelessWidget {
           InkWell(
             onTap: onToggle,
             borderRadius: BorderRadius.circular(12),
+            splashColor: AppColors.successBg,
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  // Stage icon circle
+                  // Stage icon circle with gradient
                   Container(
-                    width: 44,
-                    height: 44,
+                    width: 46,
+                    height: 46,
                     decoration: BoxDecoration(
-                      color: AppColors.stageBgColor(season['stage'] as String),
                       shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.stageBgColor(season['stage'] as String),
+                          AppColors.stageColor(season['stage'] as String)
+                              .withOpacity(0.18),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                     ),
                     child: Icon(
                       _stageIcon(season['stage'] as String),
@@ -194,7 +242,7 @@ class _SeasonCard extends StatelessWidget {
                           season['farmerName'] as String,
                           style: AppTextStyles.h3,
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 3),
                         Text(
                           '${season['variety']}  •  ${season['stage']}  •  ${season['dap']} DAP',
                           style: AppTextStyles.caption,
@@ -204,12 +252,14 @@ class _SeasonCard extends StatelessWidget {
                   ),
                   SeasonStatusBadge(status: season['status'] as String),
                   const SizedBox(width: 4),
-                  Icon(
-                    isExpanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    color: AppColors.textDisabled,
-                    size: 20,
+                  AnimatedRotation(
+                    turns: isExpanded ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: AppColors.textDisabled,
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
@@ -217,82 +267,96 @@ class _SeasonCard extends StatelessWidget {
           ),
 
           // ── Expanded details ──────────────────────
-          if (isExpanded) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Dates row
-                  Row(
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            child: isExpanded
+                ? Column(
                     children: [
-                      _DateChip(
-                        label: 'Planted',
-                        date: season['plantingDate'] as String,
-                        icon: Icons.calendar_today,
-                      ),
-                      const SizedBox(width: 8),
-                      _DateChip(
-                        label: 'Harvest',
-                        date: season['harvestDate'] as String,
-                        icon: Icons.event_available,
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Dates row
+                            Row(
+                              children: [
+                                _DateChip(
+                                  label: 'Planted',
+                                  date: season['plantingDate'] as String,
+                                  icon: Icons.calendar_today,
+                                ),
+                                const SizedBox(width: 8),
+                                _DateChip(
+                                  label: 'Harvest',
+                                  date: season['harvestDate'] as String,
+                                  icon: Icons.event_available,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Target yield
+                            AppFlatCard(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.agriculture,
+                                      size: 16, color: AppColors.accent),
+                                  const SizedBox(width: 8),
+                                  Text('Target Yield',
+                                      style: AppTextStyles.label),
+                                  const Spacer(),
+                                  Text(
+                                    '${season['targetYield']} t/ha',
+                                    style: AppTextStyles.body.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Growth timeline
+                            SectionHeader(
+                              title: 'Growth Timeline',
+                              padding: const EdgeInsets.only(bottom: 8),
+                            ),
+                            _GrowthTimeline(
+                                currentStage: season['stage'] as String),
+                            const SizedBox(height: 14),
+
+                            // Action button
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => context.push(
+                                  '/add-event?seasonId=${season['id']}',
+                                ),
+                                icon: const Icon(Icons.edit_note, size: 18),
+                                label: const Text('Log Event'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.primary,
+                                  side: BorderSide(color: AppColors.primary),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Target yield
-                  AppFlatCard(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.agriculture,
-                            size: 16, color: AppColors.accent),
-                        const SizedBox(width: 8),
-                        Text('Target Yield',
-                            style: AppTextStyles.label),
-                        const Spacer(),
-                        Text(
-                          '${season['targetYield']} t/ha',
-                          style: AppTextStyles.body.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Growth timeline
-                  SectionHeader(
-                    title: 'Growth Timeline',
-                    padding: const EdgeInsets.only(bottom: 8),
-                  ),
-                  _GrowthTimeline(
-                      currentStage: season['stage'] as String),
-                  const SizedBox(height: 12),
-
-                  // Action buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => context.push(
-                            '/add-event?seasonId=${season['id']}',
-                          ),
-                          icon: const Icon(Icons.add, size: 16),
-                          label: const Text('Log Event'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
       ),
     );
@@ -319,6 +383,7 @@ class _GrowthTimeline extends StatelessWidget {
   Widget build(BuildContext context) {
     final currentIdx = _stages.indexOf(currentStage);
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(_stages.length, (i) {
         final done    = i < currentIdx;
         final active  = i == currentIdx;
@@ -328,8 +393,10 @@ class _GrowthTimeline extends StatelessWidget {
             : done
                 ? AppColors.success
                 : AppColors.border;
+
         return Expanded(
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
@@ -348,9 +415,7 @@ class _GrowthTimeline extends StatelessWidget {
                         border: Border.all(color: color, width: 2),
                       ),
                       child: Icon(
-                        done
-                            ? Icons.check
-                            : _stageIcon(_stages[i]),
+                        done ? Icons.check : _stageIcon(_stages[i]),
                         size: 14,
                         color: color,
                       ),
@@ -362,24 +427,23 @@ class _GrowthTimeline extends StatelessWidget {
                         color: pending
                             ? AppColors.textDisabled
                             : AppColors.textPrimary,
-                        fontWeight: active
-                            ? FontWeight.w600
-                            : FontWeight.normal,
+                        fontWeight:
+                            active ? FontWeight.w600 : FontWeight.normal,
                         fontSize: 9,
                       ),
                       textAlign: TextAlign.center,
+                      overflow: TextOverflow.visible,
                     ),
                   ],
                 ),
               ),
-              // Connector line (not after last)
+              // Connector line between nodes, vertically centred on the circles
               if (i < _stages.length - 1)
-                Expanded(
-                  child: Container(
-                    height: 2,
-                    margin: const EdgeInsets.only(bottom: 18),
-                    color: done ? AppColors.success : AppColors.border,
-                  ),
+                Container(
+                  width: 8,
+                  height: 2,
+                  margin: const EdgeInsets.only(top: 13),
+                  color: done ? AppColors.success : AppColors.border,
                 ),
             ],
           ),
@@ -424,10 +488,12 @@ class _DateChip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label, style: AppTextStyles.caption),
-                Text(date,
-                    style: AppTextStyles.label.copyWith(
-                      color: AppColors.textPrimary,
-                    )),
+                Text(
+                  date,
+                  style: AppTextStyles.label.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
               ],
             ),
           ],
@@ -437,7 +503,7 @@ class _DateChip extends StatelessWidget {
   }
 }
 
-// ── Season Status Badge (uses your existing AppStatusBadge) ──
+// ── Season Status Badge ───────────────────────────────
 class SeasonStatusBadge extends StatelessWidget {
   final String status;
   const SeasonStatusBadge({super.key, required this.status});

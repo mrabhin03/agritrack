@@ -1,5 +1,4 @@
 // features/dashboard/dashboard_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,9 +10,8 @@ import '../../core/widgets/stat_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/section_header.dart';
-import '../../core/widgets/loading_overlay.dart';
 
-// ── Temporary hardcoded provider (replaced in Phase 6) ──
+// ── Check-in provider ─────────────────────────────────────
 final _checkInProvider =
     StateNotifierProvider<_CheckInNotifier, _CheckInState>(
   (ref) => _CheckInNotifier(),
@@ -27,25 +25,21 @@ class _CheckInState {
 
 class _CheckInNotifier extends StateNotifier<_CheckInState> {
   _CheckInNotifier() : super(const _CheckInState());
-
   void checkIn() {
     final now = DateFormat('hh:mm a').format(DateTime.now());
     state = _CheckInState(isCheckedIn: true, time: now);
   }
-
-  void checkOut() {
-    state = const _CheckInState();
-  }
+  void checkOut() => state = const _CheckInState();
 }
 
-// ── Hardcoded KPIs (replaced with Supabase view in Phase 8) ─
+// ── KPIs ──────────────────────────────────────────────────
 class _Kpis {
-  static const int totalFarmers    = 128;
-  static const int plotsMapped     = 214;
-  static const double totalAreaHa  = 144.2; // 356.8 acres
-  static const int activeSeasons   = 5;
-  static const int activeCrops     = 2;
-  static const double totalCo2eT   = -1.2; // net tCO2e
+  static const int totalFarmers   = 128;
+  static const int plotsMapped    = 214;
+  static const double totalAreaHa = 144.2;
+  static const int activeSeasons  = 5;
+  static const int activeCrops    = 2;
+  static const double totalCo2eT  = -1.2;
 }
 
 // ── Screen ────────────────────────────────────────────────
@@ -58,256 +52,63 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── KPI Section ────────────────────────────
-              const SectionHeader(
-                title: 'Overview',
-                icon: Icons.bar_chart_outlined,
-                padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
-              ),
-              _KpiGrid(),
-
-              // ── Today's Field Activity ─────────────────
-              const SectionHeader(
-                title: "Today's Field Activity",
-                icon: Icons.today_outlined,
-                padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
-              ),
-              _CheckInCard(checkIn: checkIn),
-
-              // ── Quick Actions ──────────────────────────
-              const SectionHeader(
-                title: 'Quick Actions',
-                icon: Icons.bolt_outlined,
-                padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
-              ),
-              _QuickActions(),
-
-              // ── Plot Overview teaser ───────────────────
-              const SectionHeader(
-                title: 'Plot Overview',
-                icon: Icons.map_outlined,
-                actionLabel: 'View map',
-                padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
-              ),
-              _PlotOverviewTeaser(),
-
-              const SizedBox(height: 32),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── KPI grid: 2-column, 3 rows ────────────────────────────
-class _KpiGrid extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final areaAcres = (_Kpis.totalAreaHa * 2.471).toStringAsFixed(1);
-    final co2Label  = _Kpis.totalCo2eT < 0
-        ? '${_Kpis.totalCo2eT} tCO₂e (Net)'
-        : '${_Kpis.totalCo2eT} tCO₂e';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          // Row 1: Farmers + Plots
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  label: 'Active farmers',
-                  value: '${_Kpis.totalFarmers}',
-                  icon: Icons.people_outline,
-                  iconColor: AppColors.primary,
-                  iconBgColor: AppColors.successBg,
-                  onTap: () {},
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: StatCard(
-                  label: 'Geo-tagged plots',
-                  value: '${_Kpis.plotsMapped}',
-                  icon: Icons.location_on_outlined,
-                  iconColor: AppColors.info,
-                  iconBgColor: AppColors.infoBg,
-                  onTap: () {},
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Row 2: Area + Crops/Season
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  label: 'Mapped crop area',
-                  value: '$areaAcres acres',
-                  icon: Icons.terrain_outlined,
-                  iconColor: AppColors.warning,
-                  iconBgColor: AppColors.warningBg,
-                  onTap: () {},
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: StatCard(
-                  label: 'Crops / Season',
-                  value:
-                      '${_Kpis.activeSeasons} crops  ${_Kpis.activeCrops} season',
-                  icon: Icons.grass_outlined,
-                  iconColor: AppColors.stagePlanting,
-                  iconBgColor: AppColors.stagePlantingBg,
-                  badge: 'Low Emissions',
-                  badgeVariant: BadgeVariant.success,
-                  onTap: () {},
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Row 3: Carbon (full width for prominence)
-          StatCard(
-            label: 'Carbon Footprint',
-            value: co2Label,
-            icon: Icons.eco_outlined,
-            iconColor: AppColors.primary,
-            iconBgColor: AppColors.successBg,
-            badge: 'Low Emissions',
-            badgeVariant: BadgeVariant.success,
-            onTap: () {},
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Check In card ─────────────────────────────────────────
-class _CheckInCard extends StatelessWidget {
-  const _CheckInCard({required this.checkIn});
-
-  final _CheckInState checkIn;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: AppCard(
-        padding: const EdgeInsets.all(16),
-        child: Row(
+      body: SingleChildScrollView(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Left: location + status ──────────────
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // ── Hero banner (greeting + check-in) ─────
+            _HeroBanner(checkIn: checkIn),
+
+            // ── KPI grid ──────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+              child: Row(
                 children: [
-                  // Location row
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on,
-                        size: 16,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Kothamangalam, Kerala',
-                        style: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Status row
-                  Row(
-                    children: [
-                      Icon(
-                        checkIn.isCheckedIn
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                        size: 16,
-                        color: checkIn.isCheckedIn
-                            ? AppColors.success
-                            : AppColors.textDisabled,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        checkIn.isCheckedIn
-                            ? 'Checked in at ${checkIn.time}'
-                            : 'Not checked in',
-                        style: AppTextStyles.body.copyWith(
-                          color: checkIn.isCheckedIn
-                              ? AppColors.textPrimary
-                              : AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Buttons row
-                  Consumer(
-                    builder: (context, ref, _) => Row(
-                      children: [
-                        SizedBox(
-                          height: 40,
-                          child: ElevatedButton(
-                            onPressed: checkIn.isCheckedIn
-                                ? null
-                                : () => ref
-                                    .read(_checkInProvider.notifier)
-                                    .checkIn(),
-                            child: const Text('Check In'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          height: 40,
-                          child: OutlinedButton(
-                            onPressed: checkIn.isCheckedIn
-                                ? () => ref
-                                    .read(_checkInProvider.notifier)
-                                    .checkOut()
-                                : null,
-                            child: const Text('Check Out'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const Icon(Icons.bar_chart_outlined,
+                      size: 15, color: AppColors.textDisabled),
+                  const SizedBox(width: 6),
+                  Text('Overview',
+                      style: AppTextStyles.label
+                          .copyWith(color: AppColors.textSecondary)),
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+            const _KpiGrid(),
 
-            // ── Right: field photo ───────────────────
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                width: 90,
-                height: 90,
-                color: AppColors.stagePlantingBg,
-                child: const Icon(
-                  Icons.grass,
-                  size: 40,
-                  color: AppColors.stagePlanting,
-                ),
+            // ── Quick actions ──────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.bolt_outlined,
+                      size: 15, color: AppColors.textDisabled),
+                  const SizedBox(width: 6),
+                  Text('Quick Actions',
+                      style: AppTextStyles.label
+                          .copyWith(color: AppColors.textSecondary)),
+                ],
               ),
             ),
+            const _QuickActions(),
+
+            // ── Plot teaser ────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.map_outlined,
+                      size: 15, color: AppColors.textDisabled),
+                  const SizedBox(width: 6),
+                  Text('Plot Overview',
+                      style: AppTextStyles.label
+                          .copyWith(color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            const _PlotOverviewTeaser(),
+
+            const SizedBox(height: 40),
           ],
         ),
       ),
@@ -315,15 +116,385 @@ class _CheckInCard extends StatelessWidget {
   }
 }
 
-// ── Quick action cards ────────────────────────────────────
+// ── Hero Banner ───────────────────────────────────────────
+class _HeroBanner extends ConsumerWidget {
+  const _HeroBanner({required this.checkIn});
+  final _CheckInState checkIn;
+
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  String get _todayLabel =>
+      DateFormat('EEEE, d MMM yyyy').format(DateTime.now());
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF1B4332), Color(0xFF2D6A4F), Color(0xFF40916C)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Greeting row
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _greeting,
+                          style: AppTextStyles.body.copyWith(
+                            color: Colors.white.withOpacity(0.75),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Field Officer',
+                          style: AppTextStyles.h1.copyWith(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.calendar_today_outlined,
+                                size: 12, color: Colors.white54),
+                            const SizedBox(width: 4),
+                            Text(
+                              _todayLabel,
+                              style: AppTextStyles.caption
+                                  .copyWith(color: Colors.white54),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Location badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border:
+                          Border.all(color: Colors.white.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.location_on_outlined,
+                            size: 12, color: Colors.white70),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Kothamangalam',
+                          style: AppTextStyles.caption
+                              .copyWith(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Check-in card inside the banner
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(14),
+                  border:
+                      Border.all(color: Colors.white.withOpacity(0.15)),
+                ),
+                child: Row(
+                  children: [
+                    // Status indicator
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: checkIn.isCheckedIn
+                            ? const Color(0xFF52B788)
+                            : Colors.white38,
+                        boxShadow: checkIn.isCheckedIn
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFF52B788)
+                                      .withOpacity(0.5),
+                                  blurRadius: 6,
+                                  spreadRadius: 2,
+                                )
+                              ]
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        checkIn.isCheckedIn
+                            ? 'Checked in · ${checkIn.time}'
+                            : 'Not checked in yet',
+                        style: AppTextStyles.body.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    // Action button
+                    Consumer(
+                      builder: (context, ref, _) => GestureDetector(
+                        onTap: checkIn.isCheckedIn
+                            ? () =>
+                                ref.read(_checkInProvider.notifier).checkOut()
+                            : () =>
+                                ref.read(_checkInProvider.notifier).checkIn(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: checkIn.isCheckedIn
+                                ? Colors.white.withOpacity(0.15)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            checkIn.isCheckedIn ? 'Check Out' : 'Check In',
+                            style: AppTextStyles.label.copyWith(
+                              color: checkIn.isCheckedIn
+                                  ? Colors.white
+                                  : AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── KPI Grid ──────────────────────────────────────────────
+class _KpiGrid extends StatelessWidget {
+  const _KpiGrid();
+
+  @override
+  Widget build(BuildContext context) {
+    final areaAcres =
+        (_Kpis.totalAreaHa * 2.471).toStringAsFixed(1);
+    final isNetNegative = _Kpis.totalCo2eT < 0;
+
+    final kpis = [
+      _KpiItem(
+        value: '${_Kpis.totalFarmers}',
+        label: 'Farmers',
+        icon: Icons.people_outline,
+        iconColor: AppColors.primary,
+        iconBg: AppColors.successBg,
+      ),
+      _KpiItem(
+        value: '${_Kpis.plotsMapped}',
+        label: 'Plots',
+        icon: Icons.location_on_outlined,
+        iconColor: AppColors.info,
+        iconBg: AppColors.infoBg,
+      ),
+      _KpiItem(
+        value: '$areaAcres',
+        label: 'Acres',
+        icon: Icons.terrain_outlined,
+        iconColor: AppColors.warning,
+        iconBg: AppColors.warningBg,
+      ),
+      _KpiItem(
+        value: '${_Kpis.activeSeasons}',
+        label: 'Seasons',
+        icon: Icons.grass_outlined,
+        iconColor: AppColors.stagePlanting,
+        iconBg: AppColors.stagePlantingBg,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          // 4 equal mini KPI cards in a row
+          Row(
+            children: kpis
+                .map((k) => Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: k == kpis.last ? 0 : 10,
+                        ),
+                        child: _KpiCard(item: k),
+                      ),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 10),
+
+          // Carbon — full width hero KPI
+          AppCard(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.primary.withOpacity(0.15),
+                        AppColors.primary.withOpacity(0.28),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: const Icon(Icons.eco_outlined,
+                      color: AppColors.primary, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Carbon Footprint',
+                          style: AppTextStyles.caption),
+                      const SizedBox(height: 2),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${_Kpis.totalCo2eT}',
+                            style: AppTextStyles.h1.copyWith(
+                              color: isNetNegative
+                                  ? AppColors.primary
+                                  : AppColors.warning,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 3, left: 4),
+                            child: Text(
+                              'tCO₂e net',
+                              style: AppTextStyles.caption
+                                  .copyWith(color: AppColors.textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                AppStatusBadge(
+                  label: isNetNegative ? 'Low Emissions' : 'High Emissions',
+                  variant: isNetNegative
+                      ? BadgeVariant.success
+                      : BadgeVariant.warning,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KpiItem {
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  const _KpiItem({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+  });
+}
+
+class _KpiCard extends StatelessWidget {
+  const _KpiCard({required this.item});
+  final _KpiItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: item.iconBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(item.icon, size: 16, color: item.iconColor),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            item.value,
+            style: AppTextStyles.h2.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(item.label, style: AppTextStyles.caption),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Quick Actions ─────────────────────────────────────────
 class _QuickActions extends StatelessWidget {
+  const _QuickActions();
+
   @override
   Widget build(BuildContext context) {
     final actions = [
       _QuickAction(
         icon: Icons.people_outline,
-        label: 'Farmers List',
-        sublabel: 'View and Manage',
+        label: 'Farmers',
+        sublabel: 'View & manage',
         iconColor: AppColors.primary,
         iconBg: AppColors.successBg,
         onTap: () => context.go('/farmers'),
@@ -331,23 +502,23 @@ class _QuickActions extends StatelessWidget {
       _QuickAction(
         icon: Icons.person_add_outlined,
         label: 'Add Farmer',
-        sublabel: 'Register New Farmer',
+        sublabel: 'Register new',
         iconColor: AppColors.info,
         iconBg: AppColors.infoBg,
         onTap: () => context.push('/add-farmer'),
       ),
       _QuickAction(
         icon: Icons.grass_outlined,
-        label: 'Crops & Season',
-        sublabel: 'View Crop Details',
+        label: 'Crops',
+        sublabel: 'Seasons & stages',
         iconColor: AppColors.stagePlanting,
         iconBg: AppColors.stagePlantingBg,
         onTap: () => context.go('/crops'),
       ),
       _QuickAction(
         icon: Icons.eco_outlined,
-        label: 'Carbon Footprint',
-        sublabel: 'Track Emissions',
+        label: 'Carbon',
+        sublabel: 'Track emissions',
         iconColor: AppColors.stageHarvest,
         iconBg: AppColors.stageHarvestBg,
         onTap: () => context.go('/carbon'),
@@ -358,11 +529,11 @@ class _QuickActions extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: GridView.count(
         crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        childAspectRatio: 1.6,
+        childAspectRatio: 1.75,
         children: actions
             .map((a) => _QuickActionCard(action: a))
             .toList(),
@@ -378,7 +549,6 @@ class _QuickAction {
   final Color iconColor;
   final Color iconBg;
   final VoidCallback onTap;
-
   const _QuickAction({
     required this.icon,
     required this.label,
@@ -398,162 +568,241 @@ class _QuickActionCard extends StatelessWidget {
     return AppCard(
       onTap: action.onTap,
       padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               color: action.iconBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(action.icon, size: 18, color: action.iconColor),
+            child: Icon(action.icon, size: 20, color: action.iconColor),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                action.label,
-                style: AppTextStyles.labelLarge,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                action.sublabel,
-                style: AppTextStyles.caption,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  action.label,
+                  style: AppTextStyles.labelLarge,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  action.sublabel,
+                  style: AppTextStyles.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
+          Icon(Icons.arrow_forward_ios_rounded,
+              size: 12, color: AppColors.textDisabled),
         ],
       ),
     );
   }
 }
 
-// ── Plot overview teaser ──────────────────────────────────
+// ── Plot Overview Teaser ──────────────────────────────────
 class _PlotOverviewTeaser extends StatelessWidget {
+  const _PlotOverviewTeaser();
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: AppCard(
-        padding: EdgeInsets.zero,
+      child: GestureDetector(
         onTap: () => context.go('/plots'),
-        child: Stack(
-          children: [
-            // ── Map placeholder background ───────────
-            Container(
-              height: 160,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppColors.stagePlantingBg,
-                    AppColors.successBg,
-                    AppColors.stageGrowthBg,
-                  ],
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.map_outlined,
-                  size: 48,
-                  color: AppColors.primary.withOpacity(0.3),
-                ),
-              ),
+        child: Container(
+          height: 170,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1B4332), Color(0xFF2D6A4F)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withOpacity(0.3),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              // Decorative blob shapes suggesting field boundaries
+              Positioned(
+                right: -20,
+                top: -10,
+                child: Opacity(
+                  opacity: 0.15,
+                  child: Container(
+                    width: 140,
+                    height: 140,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF74C69D),
+                      borderRadius: BorderRadius.circular(60),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 40,
+                bottom: -20,
+                child: Opacity(
+                  opacity: 0.10,
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF52B788),
+                      borderRadius: BorderRadius.circular(40),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 80,
+                top: 20,
+                child: Opacity(
+                  opacity: 0.08,
+                  child: Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ),
 
-            // ── Stats overlay (bottom-right) ─────────
-            Positioned(
-              right: 12,
-              bottom: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surface.withOpacity(0.92),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
-                ),
+              // Content
+              Padding(
+                padding: const EdgeInsets.all(18),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _OverlayRow(
-                      icon: Icons.location_on_outlined,
-                      text: 'Plots:  ${_Kpis.plotsMapped}',
+                    // Top row
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.2)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.satellite_alt_outlined,
+                                  size: 12, color: Colors.white70),
+                              const SizedBox(width: 4),
+                              Text('Live Map',
+                                  style: AppTextStyles.caption
+                                      .copyWith(color: Colors.white70)),
+                            ],
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.open_in_full,
+                              size: 13, color: Colors.white),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    _OverlayRow(
-                      icon: Icons.terrain_outlined,
-                      text: 'Area:  ${(_Kpis.totalAreaHa * 2.471).toStringAsFixed(1)} acres',
-                    ),
-                  ],
-                ),
-              ),
-            ),
 
-            // ── Tap hint ────────────────────────────
-            Positioned(
-              left: 12,
-              bottom: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.open_in_full,
-                      size: 12,
-                      color: AppColors.textOnPrimary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Open map',
-                      style: AppTextStyles.buttonSmall,
+                    const Spacer(),
+
+                    // Bottom stats
+                    Row(
+                      children: [
+                        _TeaserStat(
+                          value: '${_Kpis.plotsMapped}',
+                          label: 'Plots mapped',
+                        ),
+                        const SizedBox(width: 24),
+                        _TeaserStat(
+                          value:
+                              '${(_Kpis.totalAreaHa * 2.471).toStringAsFixed(0)}',
+                          label: 'Acres covered',
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Open map',
+                                style: AppTextStyles.label.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_forward_rounded,
+                                  size: 13, color: AppColors.primary),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _OverlayRow extends StatelessWidget {
-  const _OverlayRow({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
+class _TeaserStat extends StatelessWidget {
+  const _TeaserStat({required this.value, required this.label});
+  final String value;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 13, color: AppColors.primary),
-        const SizedBox(width: 5),
-        Text(text, style: AppTextStyles.caption.copyWith(
-          color: AppColors.textPrimary,
-          fontWeight: FontWeight.w600,
-        )),
+        Text(
+          value,
+          style: AppTextStyles.h2.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 22,
+          ),
+        ),
+        Text(
+          label,
+          style: AppTextStyles.caption
+              .copyWith(color: Colors.white60),
+        ),
       ],
     );
   }

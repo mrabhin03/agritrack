@@ -86,7 +86,7 @@ class _FarmersScreenState extends State<FarmersScreen> {
             child: _filtered.isEmpty
                 ? const EmptyState.noResults()
                 : ListView.separated(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                     itemCount: _filtered.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, i) =>
@@ -95,13 +95,10 @@ class _FarmersScreenState extends State<FarmersScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/add-farmer'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.person_add),
-        label: const Text('Add Farmer'),
+      floatingActionButton: _AddFarmerButton(
+        onTap: () => context.push('/add-farmer'),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
@@ -115,6 +112,21 @@ class _FarmersScreenState extends State<FarmersScreen> {
           hintText: 'Search by name, village or phone...',
           hintStyle: AppTextStyles.body.copyWith(color: AppColors.textDisabled),
           prefixIcon: const Icon(Icons.search, color: AppColors.textDisabled),
+          filled: true,
+          fillColor: AppColors.surface,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
           suffixIcon: _search.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear, size: 18),
@@ -154,6 +166,49 @@ class _FarmersScreenState extends State<FarmersScreen> {
   }
 }
 
+// ── Custom Add Farmer Button ──────────────────────────
+class _AddFarmerButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddFarmerButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.eco_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              'Add Farmer',
+              style: AppTextStyles.label.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Farmer Card ───────────────────────────────────────
 class _FarmerCard extends StatelessWidget {
   final Map<String, dynamic> farmer;
@@ -171,15 +226,28 @@ class _FarmerCard extends StatelessWidget {
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
+        splashColor: AppColors.successBg,
         onTap: () => context.push('/farmers/${farmer['id']}'),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              // Avatar
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.successBg,
+              // Avatar with gradient feel
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.primary.withOpacity(0.15),
+                      AppColors.primary.withOpacity(0.28),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                alignment: Alignment.center,
                 child: Text(
                   _initials,
                   style: AppTextStyles.h3.copyWith(color: AppColors.primary),
@@ -192,7 +260,7 @@ class _FarmerCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(farmer['name'] as String, style: AppTextStyles.h3),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Row(
                       children: [
                         const Icon(Icons.location_on,
@@ -213,7 +281,7 @@ class _FarmerCard extends StatelessWidget {
               ),
               // Stage badge
               AppBadge(label: farmer['stage'] as String),
-              const SizedBox(width: 4),
+              const SizedBox(width: 2),
               const Icon(Icons.chevron_right,
                   size: 18, color: AppColors.textDisabled),
             ],
