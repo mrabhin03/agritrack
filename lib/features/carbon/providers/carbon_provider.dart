@@ -1,14 +1,14 @@
 // features/carbon/providers/carbon_provider.dart
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/emission_model.dart';
-import '../../../core/fake/fake_data.dart';
+import '../../../services/hive_service.dart';
 import '../../../core/utils/emission_calc.dart';
 
 // ── Season filter (for carbon screen) ────────────────
 final carbonSeasonFilterProvider = StateProvider<String?>((ref) => null);
 
 // ── Master emission records list ──────────────────────
+// Layer 6b: reads from Hive box
 // Layer 7 swap: replace body with repository.fetchAll()
 final carbonProvider =
     AsyncNotifierProvider<CarbonNotifier, List<EmissionModel>>(
@@ -19,7 +19,9 @@ class CarbonNotifier extends AsyncNotifier<List<EmissionModel>> {
   @override
   Future<List<EmissionModel>> build() async {
     // Layer 7: return ref.read(carbonRepositoryProvider).fetchAll();
-    return FakeData.emissions;
+    final box = HiveService.emissionsBox;
+    return box.values.toList()
+      ..sort((a, b) => b.calculatedAt.compareTo(a.calculatedAt));
   }
 
   Future<void> addEmission(Map<String, dynamic> data) async {
@@ -35,19 +37,23 @@ class CarbonNotifier extends AsyncNotifier<List<EmissionModel>> {
       areaHa: (data['area_ha'] as num? ?? 0).toDouble(),
       harvestYieldT: (data['harvest_yield_t'] as num?)?.toDouble(),
     );
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([record, ...current]);
+    await HiveService.emissionsBox.put(record.id, record);
+    ref.invalidateSelf();
   }
 
   Future<void> deleteEmission(String id) async {
     // Layer 7: await ref.read(carbonRepositoryProvider).delete(id);
-    final current = state.valueOrNull ?? [];
-    state = AsyncData(current.where((e) => e.id != id).toList());
+    await HiveService.emissionsBox.delete(id);
+    ref.invalidateSelf();
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async => FakeData.emissions);
+    state = await AsyncValue.guard(() async {
+      final box = HiveService.emissionsBox;
+      return box.values.toList()
+        ..sort((a, b) => b.calculatedAt.compareTo(a.calculatedAt));
+    });
   }
 }
 
@@ -100,34 +106,24 @@ class CarbonSummary {
 final carbonSummaryProvider = Provider<CarbonSummary>((ref) {
   final emissions = ref.watch(filteredEmissionsProvider);
   if (emissions.isEmpty) return CarbonSummary.zero;
-
   final total = emissions.fold(0.0, (s, e) => s + e.totalCo2eKg);
   final n2o = emissions.fold(0.0, (s, e) => s + e.n2oCo2eKg);
   final diesel = emissions.fold(0.0, (s, e) => s + e.dieselCo2eKg);
-  final electricity = emissions.fold(0.0, (s, e) => s + e.electricityCo2eKg);
-
-  final withArea = emissions.where((e) => e.intensityPerHa != null).toList();
-  final avgPerHa = withArea.isEmpty
+  final elec = emissions.fold(0.0, (s, e) => s + e.electricityCo2eKg);
+  final intensities = emissions
+      .where((e) => e.intensityPerHa != null)
+      .map((e) => e.intensityPerHa!)
+      .toList();
+  final avgIntensity = intensities.isEmpty
       ? 0.0
-      : withArea.fold(0.0, (s, e) => s + e.intensityPerHa!) / withArea.length;
-
+      : intensities.reduce((a, b) => a + b) / intensities.length;
   return CarbonSummary(
-    totalCo2eKg: EmissionCalc.round2(total),
-    n2oCo2eKg: EmissionCalc.round2(n2o),
-    dieselCo2eKg: EmissionCalc.round2(diesel),
-    electricityCo2eKg: EmissionCalc.round2(electricity),
-    avgIntensityPerHa: EmissionCalc.round2(avgPerHa),
-    isLowEmissions: EmissionCalc.isLowEmissions(avgPerHa),
+    totalCo2eKg: total,
+    n2oCo2eKg: n2o,
+    dieselCo2eKg: diesel,
+    electricityCo2eKg: elec,
+    avgIntensityPerHa: avgIntensity,
+    isLowEmissions: EmissionCalc.isLowEmissions(avgIntensity),
     recordCount: emissions.length,
   );
-});
-
-// ── Breakdown map for fl_chart ────────────────────────
-final carbonBreakdownProvider = Provider<Map<String, double>>((ref) {
-  final summary = ref.watch(carbonSummaryProvider);
-  return {
-    'N₂O (Fertiliser)': summary.n2oCo2eKg,
-    'CO₂ (Diesel)': summary.dieselCo2eKg,
-    'CO₂ (Grid)': summary.electricityCo2eKg,
-  };
 });

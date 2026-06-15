@@ -1,117 +1,113 @@
 // features/farmers/farmers_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/empty_state.dart';
+import 'models/farmer_model.dart';
+import 'providers/farmers_provider.dart';
 
-// ── Fake data (replaced in Layer 6) ──────────────────
-const _fakeFarmers = [
-  {
-    'id': 'F001',
-    'name': 'Arun Menon',
-    'village': 'Kothamangalam',
-    'phone': '9876543210',
-    'stage': 'Growth',
-    'area': 2.4,
-  },
-  {
-    'id': 'F002',
-    'name': 'Priya Nair',
-    'village': 'Munnar',
-    'phone': '9845678901',
-    'stage': 'Flowering',
-    'area': 1.8,
-  },
-  {
-    'id': 'F003',
-    'name': 'Suresh Kumar',
-    'village': 'Thodupuzha',
-    'phone': '9812345678',
-    'stage': 'Harvest',
-    'area': 3.2,
-  },
-  {
-    'id': 'F004',
-    'name': 'Latha Krishnan',
-    'village': 'Erattupetta',
-    'phone': '9834567890',
-    'stage': 'Nursery',
-    'area': 1.1,
-  },
-  {
-    'id': 'F005',
-    'name': 'Biju Thomas',
-    'village': 'Pala',
-    'phone': '9867890123',
-    'stage': 'Planting',
-    'area': 2.0,
-  },
+const _stages = [
+  'All',
+  'Nursery',
+  'Planting',
+  'Growth',
+  'Flowering',
+  'Harvest'
 ];
 
-const _stages = ['All', 'Nursery', 'Planting', 'Growth', 'Flowering', 'Harvest'];
-
-class FarmersScreen extends StatefulWidget {
+class FarmersScreen extends ConsumerWidget {
   const FarmersScreen({super.key});
 
   @override
-  State<FarmersScreen> createState() => _FarmersScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final farmersAsync = ref.watch(farmersProvider);
+    final filtered = ref.watch(filteredFarmersProvider);
+    final search = ref.watch(farmersSearchProvider);
+    final stageFilter = ref.watch(farmersStageFilterProvider);
 
-class _FarmersScreenState extends State<FarmersScreen> {
-  String _search = '';
-  String _stageFilter = 'All';
-
-  List<Map<String, dynamic>> get _filtered => _fakeFarmers.where((f) {
-        final q = _search.toLowerCase();
-        final matchQ = q.isEmpty ||
-            (f['name'] as String).toLowerCase().contains(q) ||
-            (f['village'] as String).toLowerCase().contains(q) ||
-            (f['phone'] as String).contains(q);
-        final matchS = _stageFilter == 'All' || f['stage'] == _stageFilter;
-        return matchQ && matchS;
-      }).toList();
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
         children: [
-          _buildSearchBar(),
-          _buildFilterChips(),
+          // ── Search bar ──────────────────────────────
+          _SearchBar(
+            value: search,
+            onChanged: (v) =>
+                ref.read(farmersSearchProvider.notifier).state = v,
+            onClear: () =>
+                ref.read(farmersSearchProvider.notifier).state = '',
+          ),
+          // ── Stage filter chips ──────────────────────
+          _StageFilterChips(
+            selected: stageFilter,
+            onSelect: (s) =>
+                ref.read(farmersStageFilterProvider.notifier).state = s,
+          ),
           const Divider(height: 1),
+          // ── List ────────────────────────────────────
           Expanded(
-            child: _filtered.isEmpty
-                ? const EmptyState.noResults()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                    itemCount: _filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, i) =>
-                        _FarmerCard(farmer: _filtered[i]),
-                  ),
+            child: farmersAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+              error: (e, _) => Center(
+                child: Text('Error: $e', style: AppTextStyles.body),
+              ),
+              data: (_) => filtered.isEmpty
+                  ? search.isNotEmpty || stageFilter != 'All'
+                      ? const EmptyState.noResults()
+                      : EmptyState.noFarmers(
+                          onAction: () => context.push('/add-farmer'),
+                        )
+                  : ListView.separated(
+                      padding:
+                          const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: 10),
+                      itemBuilder: (context, i) =>
+                          _FarmerCard(farmer: filtered[i]),
+                    ),
+            ),
           ),
         ],
       ),
       floatingActionButton: _AddFarmerButton(
         onTap: () => context.push('/add-farmer'),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.centerFloat,
     );
   }
+}
 
-  Widget _buildSearchBar() {
+// ── Search Bar ────────────────────────────────────────────
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({
+    required this.value,
+    required this.onChanged,
+    required this.onClear,
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: TextField(
-        onChanged: (v) => setState(() => _search = v),
+        onChanged: onChanged,
         style: AppTextStyles.body,
         decoration: InputDecoration(
           hintText: 'Search by name, village or phone...',
-          hintStyle: AppTextStyles.body.copyWith(color: AppColors.textDisabled),
-          prefixIcon: const Icon(Icons.search, color: AppColors.textDisabled),
+          hintStyle:
+              AppTextStyles.body.copyWith(color: AppColors.textDisabled),
+          prefixIcon:
+              const Icon(Icons.search, color: AppColors.textDisabled),
           filled: true,
           fillColor: AppColors.surface,
           border: OutlineInputBorder(
@@ -124,21 +120,33 @@ class _FarmersScreenState extends State<FarmersScreen> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+            borderSide:
+                const BorderSide(color: AppColors.primary, width: 1.5),
           ),
           contentPadding: const EdgeInsets.symmetric(vertical: 12),
-          suffixIcon: _search.isNotEmpty
+          suffixIcon: value.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear, size: 18),
-                  onPressed: () => setState(() => _search = ''),
+                  onPressed: onClear,
                 )
               : null,
         ),
       ),
     );
   }
+}
 
-  Widget _buildFilterChips() {
+// ── Stage Filter Chips ────────────────────────────────────
+class _StageFilterChips extends StatelessWidget {
+  const _StageFilterChips({
+    required this.selected,
+    required this.onSelect,
+  });
+  final String selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox(
       height: 44,
       child: ListView.separated(
@@ -148,16 +156,16 @@ class _FarmersScreenState extends State<FarmersScreen> {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final s = _stages[i];
-          final selected = s == _stageFilter;
+          final isSelected = s == selected;
           return FilterChip(
             label: Text(s, style: AppTextStyles.label),
-            selected: selected,
-            onSelected: (_) => setState(() => _stageFilter = s),
+            selected: isSelected,
+            onSelected: (_) => onSelect(s),
             selectedColor: AppColors.successBg,
             checkmarkColor: AppColors.primary,
             backgroundColor: AppColors.surface,
             side: BorderSide(
-              color: selected ? AppColors.primary : AppColors.border,
+              color: isSelected ? AppColors.primary : AppColors.border,
             ),
           );
         },
@@ -166,7 +174,7 @@ class _FarmersScreenState extends State<FarmersScreen> {
   }
 }
 
-// ── Custom Add Farmer Button ──────────────────────────
+// ── Add Farmer FAB ────────────────────────────────────────
 class _AddFarmerButton extends StatelessWidget {
   final VoidCallback onTap;
   const _AddFarmerButton({required this.onTap});
@@ -209,17 +217,10 @@ class _AddFarmerButton extends StatelessWidget {
   }
 }
 
-// ── Farmer Card ───────────────────────────────────────
+// ── Farmer Card ───────────────────────────────────────────
 class _FarmerCard extends StatelessWidget {
-  final Map<String, dynamic> farmer;
+  final FarmerModel farmer;
   const _FarmerCard({required this.farmer});
-
-  String get _initials => (farmer['name'] as String)
-      .trim()
-      .split(' ')
-      .take(2)
-      .map((w) => w[0].toUpperCase())
-      .join();
 
   @override
   Widget build(BuildContext context) {
@@ -227,12 +228,12 @@ class _FarmerCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         splashColor: AppColors.successBg,
-        onTap: () => context.push('/farmers/${farmer['id']}'),
+        onTap: () => context.push('/farmers/${farmer.id}'),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              // Avatar with gradient feel
+              // Avatar
               Container(
                 width: 48,
                 height: 48,
@@ -249,8 +250,9 @@ class _FarmerCard extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: Text(
-                  _initials,
-                  style: AppTextStyles.h3.copyWith(color: AppColors.primary),
+                  farmer.initials,
+                  style:
+                      AppTextStyles.h3.copyWith(color: AppColors.primary),
                 ),
               ),
               const SizedBox(width: 12),
@@ -259,20 +261,20 @@ class _FarmerCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(farmer['name'] as String, style: AppTextStyles.h3),
+                    Text(farmer.name, style: AppTextStyles.h3),
                     const SizedBox(height: 3),
                     Row(
                       children: [
                         const Icon(Icons.location_on,
                             size: 13, color: AppColors.textDisabled),
                         const SizedBox(width: 2),
-                        Text(farmer['village'] as String,
+                        Text(farmer.village,
                             style: AppTextStyles.caption),
                         const SizedBox(width: 10),
                         const Icon(Icons.landscape,
                             size: 13, color: AppColors.textDisabled),
                         const SizedBox(width: 2),
-                        Text('${farmer['area']} ha',
+                        Text('${farmer.areaHa} ha',
                             style: AppTextStyles.caption),
                       ],
                     ),
@@ -280,7 +282,7 @@ class _FarmerCard extends StatelessWidget {
                 ),
               ),
               // Stage badge
-              AppBadge(label: farmer['stage'] as String),
+              AppBadge(label: farmer.stage),
               const SizedBox(width: 2),
               const Icon(Icons.chevron_right,
                   size: 18, color: AppColors.textDisabled),

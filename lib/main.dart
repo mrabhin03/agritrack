@@ -1,13 +1,9 @@
 // main.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import 'app.dart';
-import 'core/constants/supabase_constants.dart';
+import 'services/hive_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +13,6 @@ Future<void> main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -27,47 +22,22 @@ Future<void> main() async {
     ),
   );
 
-  // ── Hive init ──────────────────────────────────────
-  await _initHive();
+  // ── Hive: register adapters, open boxes, seed data ──
+  // All logic lives in HiveService — see lib/services/hive_service.dart
+  await HiveService.init();
 
-  // ── Supabase init ──────────────────────────────────
-  await _initSupabase();
+  // ── Supabase init (Layer 7 — not started yet) ───────
+  // Uncomment when real URL + anonKey are available.
+  // await Supabase.initialize(
+  //   url: SupabaseConstants.supabaseUrl,
+  //   anonKey: SupabaseConstants.supabaseAnonKey,
+  //   debug: true,
+  // );
 
   // ── Run app ────────────────────────────────────────
   runApp(
     const ProviderScope(
       child: AgriTrackApp(),
     ),
-  );
-}
-
-// ── Hive initialization ────────────────────────────────
-Future<void> _initHive() async {
-  await Hive.initFlutter();
-
-  // Register TypeAdapters here later (Phase 9)
-  // Hive.registerAdapter(FarmerModelAdapter());
-  // Hive.registerAdapter(PlotModelAdapter());
-  // Hive.registerAdapter(SeasonModelAdapter());
-  // Hive.registerAdapter(CropEventModelAdapter());
-  // Hive.registerAdapter(EmissionModelAdapter());
-
-  // Open boxes
-  await Future.wait([
-    Hive.openBox<dynamic>(SupabaseConstants.hiveBoxFarmers),
-    Hive.openBox<dynamic>(SupabaseConstants.hiveBoxPlots),
-    Hive.openBox<dynamic>(SupabaseConstants.hiveBoxSeasons),
-    Hive.openBox<dynamic>(SupabaseConstants.hiveBoxEmissions),
-    Hive.openBox<dynamic>(SupabaseConstants.hiveBoxPendingOps),
-    Hive.openBox<dynamic>(SupabaseConstants.hiveBoxSettings),
-  ]);
-}
-
-// ── Supabase initialization ────────────────────────────
-Future<void> _initSupabase() async {
-  await Supabase.initialize(
-    url: SupabaseConstants.supabaseUrl,
-    anonKey: SupabaseConstants.supabaseAnonKey,
-    debug: false, // set true during development
   );
 }

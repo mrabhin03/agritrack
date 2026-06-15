@@ -3,44 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
-import '../../core/widgets/stat_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_card.dart';
-import '../../core/widgets/section_header.dart';
-
-// ── Check-in provider ─────────────────────────────────────
-final _checkInProvider =
-    StateNotifierProvider<_CheckInNotifier, _CheckInState>(
-  (ref) => _CheckInNotifier(),
-);
-
-class _CheckInState {
-  final bool isCheckedIn;
-  final String? time;
-  const _CheckInState({this.isCheckedIn = false, this.time});
-}
-
-class _CheckInNotifier extends StateNotifier<_CheckInState> {
-  _CheckInNotifier() : super(const _CheckInState());
-  void checkIn() {
-    final now = DateFormat('hh:mm a').format(DateTime.now());
-    state = _CheckInState(isCheckedIn: true, time: now);
-  }
-  void checkOut() => state = const _CheckInState();
-}
-
-// ── KPIs ──────────────────────────────────────────────────
-class _Kpis {
-  static const int totalFarmers   = 128;
-  static const int plotsMapped    = 214;
-  static const double totalAreaHa = 144.2;
-  static const int activeSeasons  = 5;
-  static const int activeCrops    = 2;
-  static const double totalCo2eT  = -1.2;
-}
+import 'providers/dashboard_provider.dart';
 
 // ── Screen ────────────────────────────────────────────────
 class DashboardScreen extends ConsumerWidget {
@@ -48,8 +15,7 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final checkIn = ref.watch(_checkInProvider);
-
+    final checkIn = ref.watch(checkInProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SingleChildScrollView(
@@ -58,7 +24,6 @@ class DashboardScreen extends ConsumerWidget {
           children: [
             // ── Hero banner (greeting + check-in) ─────
             _HeroBanner(checkIn: checkIn),
-
             // ── KPI grid ──────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
@@ -75,7 +40,6 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             const _KpiGrid(),
-
             // ── Quick actions ──────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
@@ -91,7 +55,6 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ),
             const _QuickActions(),
-
             // ── Plot teaser ────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
@@ -107,7 +70,6 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ),
             const _PlotOverviewTeaser(),
-
             const SizedBox(height: 40),
           ],
         ),
@@ -119,7 +81,7 @@ class DashboardScreen extends ConsumerWidget {
 // ── Hero Banner ───────────────────────────────────────────
 class _HeroBanner extends ConsumerWidget {
   const _HeroBanner({required this.checkIn});
-  final _CheckInState checkIn;
+  final CheckInState checkIn;
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -214,10 +176,8 @@ class _HeroBanner extends ConsumerWidget {
                   ),
                 ],
               ),
-
               const SizedBox(height: 20),
-
-              // Check-in card inside the banner
+              // Check-in card
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -228,7 +188,7 @@ class _HeroBanner extends ConsumerWidget {
                 ),
                 child: Row(
                   children: [
-                    // Status indicator
+                    // Status dot
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       width: 10,
@@ -262,31 +222,30 @@ class _HeroBanner extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    // Action button
-                    Consumer(
-                      builder: (context, ref, _) => GestureDetector(
-                        onTap: checkIn.isCheckedIn
-                            ? () =>
-                                ref.read(_checkInProvider.notifier).checkOut()
-                            : () =>
-                                ref.read(_checkInProvider.notifier).checkIn(),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
+                    // Check in / out button
+                    GestureDetector(
+                      onTap: checkIn.isCheckedIn
+                          ? () => ref
+                              .read(checkInProvider.notifier)
+                              .checkOut()
+                          : () =>
+                              ref.read(checkInProvider.notifier).checkIn(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: checkIn.isCheckedIn
+                              ? Colors.white.withOpacity(0.15)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          checkIn.isCheckedIn ? 'Check Out' : 'Check In',
+                          style: AppTextStyles.label.copyWith(
                             color: checkIn.isCheckedIn
-                                ? Colors.white.withOpacity(0.15)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            checkIn.isCheckedIn ? 'Check Out' : 'Check In',
-                            style: AppTextStyles.label.copyWith(
-                              color: checkIn.isCheckedIn
-                                  ? Colors.white
-                                  : AppColors.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
+                                ? Colors.white
+                                : AppColors.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -303,39 +262,41 @@ class _HeroBanner extends ConsumerWidget {
 }
 
 // ── KPI Grid ──────────────────────────────────────────────
-class _KpiGrid extends StatelessWidget {
+class _KpiGrid extends ConsumerWidget {
   const _KpiGrid();
 
   @override
-  Widget build(BuildContext context) {
-    final areaAcres =
-        (_Kpis.totalAreaHa * 2.471).toStringAsFixed(1);
-    final isNetNegative = _Kpis.totalCo2eT < 0;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final kpis = ref.watch(dashboardKpisProvider);
 
-    final kpis = [
+    final areaAcres = kpis.totalAreaAcres.toStringAsFixed(1);
+    final co2eT = kpis.totalCo2eTonnes.toStringAsFixed(1);
+    final isNetNegative = kpis.totalCo2eKg <= 0;
+
+    final items = [
       _KpiItem(
-        value: '${_Kpis.totalFarmers}',
+        value: '${kpis.totalFarmers}',
         label: 'Farmers',
         icon: Icons.people_outline,
         iconColor: AppColors.primary,
         iconBg: AppColors.successBg,
       ),
       _KpiItem(
-        value: '${_Kpis.plotsMapped}',
+        value: '${kpis.totalPlots}',
         label: 'Plots',
         icon: Icons.location_on_outlined,
         iconColor: AppColors.info,
         iconBg: AppColors.infoBg,
       ),
       _KpiItem(
-        value: '$areaAcres',
+        value: areaAcres,
         label: 'Acres',
         icon: Icons.terrain_outlined,
         iconColor: AppColors.warning,
         iconBg: AppColors.warningBg,
       ),
       _KpiItem(
-        value: '${_Kpis.activeSeasons}',
+        value: '${kpis.activeSeasons}',
         label: 'Seasons',
         icon: Icons.grass_outlined,
         iconColor: AppColors.stagePlanting,
@@ -347,21 +308,19 @@ class _KpiGrid extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          // 4 equal mini KPI cards in a row
+          // 4 mini KPI cards
           Row(
-            children: kpis
+            children: items
                 .map((k) => Expanded(
                       child: Padding(
                         padding: EdgeInsets.only(
-                          right: k == kpis.last ? 0 : 10,
-                        ),
+                            right: k == items.last ? 0 : 10),
                         child: _KpiCard(item: k),
                       ),
                     ))
                 .toList(),
           ),
           const SizedBox(height: 10),
-
           // Carbon — full width hero KPI
           AppCard(
             padding: const EdgeInsets.all(16),
@@ -396,7 +355,7 @@ class _KpiGrid extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            '${_Kpis.totalCo2eT}',
+                            co2eT,
                             style: AppTextStyles.h1.copyWith(
                               color: isNetNegative
                                   ? AppColors.primary
@@ -406,11 +365,12 @@ class _KpiGrid extends StatelessWidget {
                             ),
                           ),
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 3, left: 4),
+                            padding: const EdgeInsets.only(
+                                bottom: 3, left: 4),
                             child: Text(
                               'tCO₂e net',
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.textSecondary),
+                              style: AppTextStyles.caption.copyWith(
+                                  color: AppColors.textSecondary),
                             ),
                           ),
                         ],
@@ -419,8 +379,10 @@ class _KpiGrid extends StatelessWidget {
                   ),
                 ),
                 AppStatusBadge(
-                  label: isNetNegative ? 'Low Emissions' : 'High Emissions',
-                  variant: isNetNegative
+                  label: kpis.isLowEmissions
+                      ? 'Low Emissions'
+                      : 'High Emissions',
+                  variant: kpis.isLowEmissions
                       ? BadgeVariant.success
                       : BadgeVariant.warning,
                 ),
@@ -534,9 +496,7 @@ class _QuickActions extends StatelessWidget {
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         childAspectRatio: 1.75,
-        children: actions
-            .map((a) => _QuickActionCard(action: a))
-            .toList(),
+        children: actions.map((a) => _QuickActionCard(action: a)).toList(),
       ),
     );
   }
@@ -610,11 +570,13 @@ class _QuickActionCard extends StatelessWidget {
 }
 
 // ── Plot Overview Teaser ──────────────────────────────────
-class _PlotOverviewTeaser extends StatelessWidget {
+class _PlotOverviewTeaser extends ConsumerWidget {
   const _PlotOverviewTeaser();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final kpis = ref.watch(dashboardKpisProvider);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: GestureDetector(
@@ -638,7 +600,7 @@ class _PlotOverviewTeaser extends StatelessWidget {
           ),
           child: Stack(
             children: [
-              // Decorative blob shapes suggesting field boundaries
+              // Decorative blobs
               Positioned(
                 right: -20,
                 top: -10,
@@ -684,14 +646,12 @@ class _PlotOverviewTeaser extends StatelessWidget {
                   ),
                 ),
               ),
-
               // Content
               Padding(
                 padding: const EdgeInsets.all(18),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top row
                     Row(
                       children: [
                         Container(
@@ -727,20 +687,17 @@ class _PlotOverviewTeaser extends StatelessWidget {
                         ),
                       ],
                     ),
-
                     const Spacer(),
-
-                    // Bottom stats
+                    // Live stats from provider
                     Row(
                       children: [
                         _TeaserStat(
-                          value: '${_Kpis.plotsMapped}',
+                          value: '${kpis.totalPlots}',
                           label: 'Plots mapped',
                         ),
                         const SizedBox(width: 24),
                         _TeaserStat(
-                          value:
-                              '${(_Kpis.totalAreaHa * 2.471).toStringAsFixed(0)}',
+                          value: kpis.totalAreaAcres.toStringAsFixed(0),
                           label: 'Acres covered',
                         ),
                         const Spacer(),
@@ -800,8 +757,7 @@ class _TeaserStat extends StatelessWidget {
         ),
         Text(
           label,
-          style: AppTextStyles.caption
-              .copyWith(color: Colors.white60),
+          style: AppTextStyles.caption.copyWith(color: Colors.white60),
         ),
       ],
     );

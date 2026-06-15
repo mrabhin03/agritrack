@@ -1,5 +1,6 @@
 // features/crops/crops_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -7,79 +8,43 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/section_header.dart';
-
-// ── Fake data ─────────────────────────────────────────
-const _fakeSeasons = [
-  {
-    'id': 'S001',
-    'farmerId': 'F001',
-    'farmerName': 'Arun Menon',
-    'variety': 'IISR Pragati',
-    'plantingDate': '12/01/2025',
-    'harvestDate': '10/07/2025',
-    'targetYield': 38.0,
-    'status': 'On track',
-    'stage': 'Growth',
-    'dap': 45,
-  },
-  {
-    'id': 'S002',
-    'farmerId': 'F002',
-    'farmerName': 'Priya Nair',
-    'variety': 'IISR Prabha',
-    'plantingDate': '05/11/2024',
-    'harvestDate': '23/06/2025',
-    'targetYield': 32.0,
-    'status': 'On track',
-    'stage': 'Flowering',
-    'dap': 120,
-  },
-  {
-    'id': 'S003',
-    'farmerId': 'F003',
-    'farmerName': 'Suresh Kumar',
-    'variety': 'Co-1',
-    'plantingDate': '01/09/2024',
-    'harvestDate': '29/03/2025',
-    'targetYield': 25.0,
-    'status': 'Complete',
-    'stage': 'Harvest',
-    'dap': 210,
-  },
-  {
-    'id': 'S004',
-    'farmerId': 'F004',
-    'farmerName': 'Latha Krishnan',
-    'variety': 'BSS-1',
-    'plantingDate': '20/02/2025',
-    'harvestDate': '28/08/2025',
-    'targetYield': 28.0,
-    'status': 'Delayed',
-    'stage': 'Nursery',
-    'dap': 10,
-  },
-];
+import '../../core/constants/crop_constants.dart';
+import '../crops/models/season_model.dart';
+import '../crops/providers/crops_provider.dart';
+import '../farmers/providers/farmers_provider.dart';
 
 const _statusFilters = ['All', 'On track', 'Delayed', 'Complete'];
 const _stages = ['Nursery', 'Planting', 'Growth', 'Flowering', 'Harvest'];
 
-class CropsScreen extends StatefulWidget {
+class CropsScreen extends ConsumerStatefulWidget {
   const CropsScreen({super.key});
 
   @override
-  State<CropsScreen> createState() => _CropsScreenState();
+  ConsumerState<CropsScreen> createState() => _CropsScreenState();
 }
 
-class _CropsScreenState extends State<CropsScreen> {
+class _CropsScreenState extends ConsumerState<CropsScreen> {
   String _statusFilter = 'All';
   String? _expandedId;
 
-  List<Map<String, dynamic>> get _filtered => _fakeSeasons
-      .where((s) => _statusFilter == 'All' || s['status'] == _statusFilter)
-      .toList();
-
   @override
   Widget build(BuildContext context) {
+    final seasonsAsync = ref.watch(filteredSeasonsProvider);
+    final farmersAsync = ref.watch(farmersProvider);
+
+    // Build a quick id→name map for farmer name lookup
+    final farmerNames = <String, String>{};
+    if (farmersAsync.valueOrNull != null) {
+      for (final f in farmersAsync.valueOrNull!) {
+        farmerNames[f.id] = f.name;
+      }
+    }
+
+    final allSeasons = seasonsAsync;
+    final filtered = _statusFilter == 'All'
+        ? allSeasons
+        : allSeasons.where((s) => s.status == _statusFilter).toList();
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -87,22 +52,54 @@ class _CropsScreenState extends State<CropsScreen> {
           _buildFilterChips(),
           const Divider(height: 1),
           Expanded(
-            child: _filtered.isEmpty
-                ? const EmptyState.noSeasons()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                    itemCount: _filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (_, i) => _SeasonCard(
-                      season: _filtered[i],
-                      isExpanded: _expandedId == _filtered[i]['id'],
+            child: ref.watch(seasonsProvider).when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Text('Error loading seasons: $e',
+                    style: AppTextStyles.body),
+              ),
+              data: (_) {
+                if (filtered.isEmpty) {
+                  return EmptyState.noSeasons(
+                    onAction: () => context.push('/add-season'),
+                  );
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) {
+                    final season = filtered[i];
+                    final farmerName =
+                        farmerNames[season.farmerId] ?? 'Unknown Farmer';
+                    return _SeasonCard(
+                      season: season,
+                      farmerName: farmerName,
+                      isExpanded: _expandedId == season.id,
                       onToggle: () => setState(() {
-                        _expandedId = _expandedId == _filtered[i]['id']
-                            ? null
-                            : _filtered[i]['id'] as String;
+                        _expandedId =
+                            _expandedId == season.id ? null : season.id;
                       }),
-                    ),
-                  ),
+                      onLogEvent: () =>
+                          context.push('/add-event?seasonId=${season.id}'),
+                      onUpdateStage: (newStage) async {
+                        await ref
+                            .read(seasonsProvider.notifier)
+                            .updateSeasonStage(season.id, newStage);
+                      },
+                      onDelete: () async {
+                        final confirm = await _showDeleteDialog(context);
+                        if (confirm == true) {
+                          await ref
+                              .read(seasonsProvider.notifier)
+                              .deleteSeason(season.id);
+                        }
+                      },
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -136,6 +133,28 @@ class _CropsScreenState extends State<CropsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Future<bool?> _showDeleteDialog(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Season?'),
+        content: const Text(
+            'This will remove the season and all logged events. This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => ctx.pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => ctx.pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
@@ -186,14 +205,22 @@ class _AddSeasonButton extends StatelessWidget {
 
 // ── Season Card ───────────────────────────────────────
 class _SeasonCard extends StatelessWidget {
-  final Map<String, dynamic> season;
+  final SeasonModel season;
+  final String farmerName;
   final bool isExpanded;
   final VoidCallback onToggle;
+  final VoidCallback onLogEvent;
+  final Future<void> Function(String) onUpdateStage;
+  final VoidCallback onDelete;
 
   const _SeasonCard({
     required this.season,
+    required this.farmerName,
     required this.isExpanded,
     required this.onToggle,
+    required this.onLogEvent,
+    required this.onUpdateStage,
+    required this.onDelete,
   });
 
   @override
@@ -211,7 +238,7 @@ class _SeasonCard extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  // Stage icon circle with gradient
+                  // Stage icon circle
                   Container(
                     width: 46,
                     height: 46,
@@ -219,17 +246,16 @@ class _SeasonCard extends StatelessWidget {
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
                         colors: [
-                          AppColors.stageBgColor(season['stage'] as String),
-                          AppColors.stageColor(season['stage'] as String)
-                              .withOpacity(0.18),
+                          AppColors.stageBgColor(season.stage),
+                          AppColors.stageColor(season.stage).withOpacity(0.18),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                     ),
                     child: Icon(
-                      _stageIcon(season['stage'] as String),
-                      color: AppColors.stageColor(season['stage'] as String),
+                      _stageIcon(season.stage),
+                      color: AppColors.stageColor(season.stage),
                       size: 22,
                     ),
                   ),
@@ -238,19 +264,16 @@ class _SeasonCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          season['farmerName'] as String,
-                          style: AppTextStyles.h3,
-                        ),
+                        Text(farmerName, style: AppTextStyles.h3),
                         const SizedBox(height: 3),
                         Text(
-                          '${season['variety']}  •  ${season['stage']}  •  ${season['dap']} DAP',
+                          '${season.variety} • ${season.stage} • ${season.dap} DAP',
                           style: AppTextStyles.caption,
                         ),
                       ],
                     ),
                   ),
-                  SeasonStatusBadge(status: season['status'] as String),
+                  SeasonStatusBadge(status: season.status),
                   const SizedBox(width: 4),
                   AnimatedRotation(
                     turns: isExpanded ? 0.5 : 0.0,
@@ -265,7 +288,6 @@ class _SeasonCard extends StatelessWidget {
               ),
             ),
           ),
-
           // ── Expanded details ──────────────────────
           AnimatedSize(
             duration: const Duration(milliseconds: 220),
@@ -284,19 +306,18 @@ class _SeasonCard extends StatelessWidget {
                               children: [
                                 _DateChip(
                                   label: 'Planted',
-                                  date: season['plantingDate'] as String,
+                                  date: season.plantingLabel,
                                   icon: Icons.calendar_today,
                                 ),
                                 const SizedBox(width: 8),
                                 _DateChip(
                                   label: 'Harvest',
-                                  date: season['harvestDate'] as String,
+                                  date: season.harvestLabel,
                                   icon: Icons.event_available,
                                 ),
                               ],
                             ),
                             const SizedBox(height: 12),
-
                             // Target yield
                             AppFlatCard(
                               padding: const EdgeInsets.symmetric(
@@ -310,7 +331,7 @@ class _SeasonCard extends StatelessWidget {
                                       style: AppTextStyles.label),
                                   const Spacer(),
                                   Text(
-                                    '${season['targetYield']} t/ha',
+                                    season.targetYieldLabel,
                                     style: AppTextStyles.body.copyWith(
                                       color: AppColors.primary,
                                       fontWeight: FontWeight.w600,
@@ -320,33 +341,70 @@ class _SeasonCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 12),
-
                             // Growth timeline
                             SectionHeader(
                               title: 'Growth Timeline',
                               padding: const EdgeInsets.only(bottom: 8),
                             ),
-                            _GrowthTimeline(
-                                currentStage: season['stage'] as String),
+                            _GrowthTimeline(currentStage: season.stage),
                             const SizedBox(height: 14),
-
-                            // Action button
+                            // Advance stage (if not complete)
+                            if (season.nextStage != null) ...[
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () =>
+                                      onUpdateStage(season.nextStage!),
+                                  icon: const Icon(
+                                      Icons.arrow_forward_ios_rounded,
+                                      size: 14),
+                                  label: Text(
+                                      'Advance to ${season.nextStage}'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.accent,
+                                    side: BorderSide(
+                                        color: AppColors.accent),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            // Log Event button
                             SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(
-                                onPressed: () => context.push(
-                                  '/add-event?seasonId=${season['id']}',
-                                ),
+                                onPressed: onLogEvent,
                                 icon: const Icon(Icons.edit_note, size: 18),
                                 label: const Text('Log Event'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: AppColors.primary,
-                                  side: BorderSide(color: AppColors.primary),
+                                  side:
+                                      BorderSide(color: AppColors.primary),
                                   padding: const EdgeInsets.symmetric(
                                       vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(10),
                                   ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // Delete button
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton.icon(
+                                onPressed: onDelete,
+                                icon: const Icon(Icons.delete_outline,
+                                    size: 16),
+                                label: const Text('Delete Season'),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.error,
                                 ),
                               ),
                             ),
@@ -364,12 +422,18 @@ class _SeasonCard extends StatelessWidget {
 
   IconData _stageIcon(String stage) {
     switch (stage) {
-      case 'Nursery':   return Icons.grass;
-      case 'Planting':  return Icons.spa;
-      case 'Growth':    return Icons.trending_up;
-      case 'Flowering': return Icons.local_florist;
-      case 'Harvest':   return Icons.agriculture;
-      default:          return Icons.grass;
+      case 'Nursery':
+        return Icons.grass;
+      case 'Planting':
+        return Icons.spa;
+      case 'Growth':
+        return Icons.trending_up;
+      case 'Flowering':
+        return Icons.local_florist;
+      case 'Harvest':
+        return Icons.agriculture;
+      default:
+        return Icons.grass;
     }
   }
 }
@@ -385,8 +449,8 @@ class _GrowthTimeline extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(_stages.length, (i) {
-        final done    = i < currentIdx;
-        final active  = i == currentIdx;
+        final done = i < currentIdx;
+        final active = i == currentIdx;
         final pending = i > currentIdx;
         final color = active
             ? AppColors.stageColor(_stages[i])
@@ -401,7 +465,6 @@ class _GrowthTimeline extends StatelessWidget {
               Expanded(
                 child: Column(
                   children: [
-                    // Circle node
                     Container(
                       width: 28,
                       height: 28,
@@ -437,7 +500,6 @@ class _GrowthTimeline extends StatelessWidget {
                   ],
                 ),
               ),
-              // Connector line between nodes, vertically centred on the circles
               if (i < _stages.length - 1)
                 Container(
                   width: 8,
@@ -454,12 +516,18 @@ class _GrowthTimeline extends StatelessWidget {
 
   IconData _stageIcon(String stage) {
     switch (stage) {
-      case 'Nursery':   return Icons.grass;
-      case 'Planting':  return Icons.spa;
-      case 'Growth':    return Icons.trending_up;
-      case 'Flowering': return Icons.local_florist;
-      case 'Harvest':   return Icons.agriculture;
-      default:          return Icons.circle;
+      case 'Nursery':
+        return Icons.grass;
+      case 'Planting':
+        return Icons.spa;
+      case 'Growth':
+        return Icons.trending_up;
+      case 'Flowering':
+        return Icons.local_florist;
+      case 'Harvest':
+        return Icons.agriculture;
+      default:
+        return Icons.circle;
     }
   }
 }
@@ -490,9 +558,8 @@ class _DateChip extends StatelessWidget {
                 Text(label, style: AppTextStyles.caption),
                 Text(
                   date,
-                  style: AppTextStyles.label.copyWith(
-                    color: AppColors.textPrimary,
-                  ),
+                  style: AppTextStyles.label
+                      .copyWith(color: AppColors.textPrimary),
                 ),
               ],
             ),
@@ -510,10 +577,14 @@ class SeasonStatusBadge extends StatelessWidget {
 
   BadgeVariant get _variant {
     switch (status) {
-      case 'On track': return BadgeVariant.success;
-      case 'Delayed':  return BadgeVariant.warning;
-      case 'Complete': return BadgeVariant.info;
-      default:         return BadgeVariant.neutral;
+      case 'On track':
+        return BadgeVariant.success;
+      case 'Delayed':
+        return BadgeVariant.warning;
+      case 'Complete':
+        return BadgeVariant.info;
+      default:
+        return BadgeVariant.neutral;
     }
   }
 

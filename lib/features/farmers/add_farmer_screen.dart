@@ -1,29 +1,31 @@
 // features/farmers/add_farmer_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/constants/crop_constants.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/section_header.dart';
+import 'providers/farmers_provider.dart';
 
-class AddFarmerScreen extends StatefulWidget {
+class AddFarmerScreen extends ConsumerStatefulWidget {
   const AddFarmerScreen({super.key});
 
   @override
-  State<AddFarmerScreen> createState() => _AddFarmerScreenState();
+  ConsumerState<AddFarmerScreen> createState() => _AddFarmerScreenState();
 }
 
-class _AddFarmerScreenState extends State<AddFarmerScreen> {
+class _AddFarmerScreenState extends ConsumerState<AddFarmerScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // Controllers
-  final _nameCtrl    = TextEditingController();
-  final _phoneCtrl   = TextEditingController();
-  final _ageCtrl     = TextEditingController();
-  final _areaCtrl    = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _ageCtrl = TextEditingController();
+  final _areaCtrl = TextEditingController();
   final _aadhaarCtrl = TextEditingController();
-  final _notesCtrl   = TextEditingController();
+  final _notesCtrl = TextEditingController();
 
   String? _village;
   bool _gpsLoading = false;
@@ -42,7 +44,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
     super.dispose();
   }
 
-  // ── Validators ───────────────────────────────────
+  // ── Validators ──────────────────────────────────────
   String? _validateName(String? v) {
     if (v == null || v.trim().isEmpty) return 'Farmer name is required';
     if (v.trim().length < 2) return 'Name must be at least 2 characters';
@@ -80,10 +82,10 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
     return null;
   }
 
-  // ── GPS capture (mock for now) ────────────────────
+  // ── GPS capture (mock — real geolocator in Layer 8) ─
   Future<void> _captureGps() async {
     setState(() => _gpsLoading = true);
-    await Future.delayed(const Duration(seconds: 1)); // Phase 8: real geolocator
+    await Future.delayed(const Duration(seconds: 1));
     setState(() {
       _gpsLat = 10.0275;
       _gpsLng = 76.3084;
@@ -91,7 +93,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
     });
   }
 
-  // ── Submit ────────────────────────────────────────
+  // ── Submit → save to Hive via provider ──────────────
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_village == null) {
@@ -100,17 +102,39 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
       );
       return;
     }
+
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 800)); // Phase 8: real save
-    if (!mounted) return;
-    setState(() => _loading = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('New farmer profile created'),
-        backgroundColor: AppColors.success,
-      ),
-    );
-    context.pop();
+
+    try {
+      await ref.read(farmersProvider.notifier).addFarmer({
+        'name': _nameCtrl.text.trim(),
+        'phone': _phoneCtrl.text.trim(),
+        'age': int.parse(_ageCtrl.text.trim()),
+        'village': _village!,
+        'area_ha': double.parse(_areaCtrl.text.trim()),
+        'notes': _notesCtrl.text.trim().isEmpty
+            ? null
+            : _notesCtrl.text.trim(),
+        'gps_lat': _gpsLat,
+        'gps_lng': _gpsLng,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('New farmer profile created'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving farmer: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -137,7 +161,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 32),
           children: [
-            // ── Personal Info ─────────────────────────
+            // ── Personal Info ────────────────────────
             SectionHeader(
               title: 'Personal Information',
               icon: Icons.person_outline,
@@ -191,7 +215,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
               ),
             ),
 
-            // ── Location ──────────────────────────────
+            // ── Location ─────────────────────────────
             SectionHeader(
               title: 'Location',
               icon: Icons.location_on_outlined,
@@ -232,7 +256,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
               ),
             ),
 
-            // ── Farm Details ──────────────────────────
+            // ── Farm Details ─────────────────────────
             SectionHeader(
               title: 'Farm Details',
               icon: Icons.landscape_outlined,
@@ -258,7 +282,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    // Aadhaar
+                    // Aadhaar (optional)
                     TextFormField(
                       controller: _aadhaarCtrl,
                       validator: _validateAadhaar,
@@ -277,7 +301,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
               ),
             ),
 
-            // ── Notes ─────────────────────────────────
+            // ── Notes ────────────────────────────────
             SectionHeader(
               title: 'Notes',
               icon: Icons.notes_outlined,
@@ -292,7 +316,8 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
                   maxLines: 3,
                   maxLength: 500,
                   decoration: const InputDecoration(
-                    hintText: 'Additional information about this farmer...',
+                    hintText:
+                        'Additional information about this farmer...',
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -303,7 +328,7 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
               ),
             ),
 
-            // ── Save button ───────────────────────────
+            // ── Save button ──────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
               child: ElevatedButton.icon(
@@ -336,13 +361,12 @@ class _AddFarmerScreenState extends State<AddFarmerScreen> {
   }
 }
 
-// ── GPS Capture Tile ──────────────────────────────────
+// ── GPS Capture Tile ──────────────────────────────────────
 class _GpsCaptureTile extends StatelessWidget {
   final bool isLoading;
   final double? lat;
   final double? lng;
   final VoidCallback onCapture;
-
   const _GpsCaptureTile({
     required this.isLoading,
     required this.lat,
@@ -371,7 +395,8 @@ class _GpsCaptureTile extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   captured
-                      ? '${lat!.toStringAsFixed(4)}° N, ${lng!.toStringAsFixed(4)}° E'
+                      ? '${lat!.toStringAsFixed(4)}° N, '
+                          '${lng!.toStringAsFixed(4)}° E'
                       : 'Tap to capture current location',
                   style: AppTextStyles.caption.copyWith(
                     color: captured
@@ -392,9 +417,8 @@ class _GpsCaptureTile extends StatelessWidget {
                   onPressed: onCapture,
                   child: Text(
                     captured ? 'Re-capture' : 'Capture',
-                    style: AppTextStyles.label.copyWith(
-                      color: AppColors.primary,
-                    ),
+                    style: AppTextStyles.label
+                        .copyWith(color: AppColors.primary),
                   ),
                 ),
         ],

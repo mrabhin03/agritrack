@@ -1,99 +1,25 @@
 // features/farmers/farmer_detail_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/section_header.dart';
+import 'models/farmer_model.dart';
+import 'providers/farmers_provider.dart';
 
-// ── Fake data (replaced in Layer 6) ──────────────────
-const _fakeDetails = {
-  'F001': {
-    'id': 'F001',
-    'name': 'Arun Menon',
-    'village': 'Kothamangalam',
-    'phone': '9876543210',
-    'age': 42,
-    'area': 2.4,
-    'stage': 'Growth',
-    'notes': 'Experienced turmeric grower. Prefers drip irrigation.',
-    'gpsLat': 10.0603,
-    'gpsLng': 76.7946,
-    'variety': 'IISR Pragati',
-    'plots': 3,
-    'seasons': 2,
-  },
-  'F002': {
-    'id': 'F002',
-    'name': 'Priya Nair',
-    'village': 'Munnar',
-    'phone': '9845678901',
-    'age': 35,
-    'area': 1.8,
-    'stage': 'Flowering',
-    'notes': '',
-    'gpsLat': 10.0889,
-    'gpsLng': 77.0595,
-    'variety': 'IISR Prabha',
-    'plots': 2,
-    'seasons': 1,
-  },
-  'F003': {
-    'id': 'F003',
-    'name': 'Suresh Kumar',
-    'village': 'Thodupuzha',
-    'phone': '9812345678',
-    'age': 51,
-    'area': 3.2,
-    'stage': 'Harvest',
-    'notes': 'Ready for harvest this month.',
-    'gpsLat': 9.7167,
-    'gpsLng': 76.7167,
-    'variety': 'Co-1',
-    'plots': 4,
-    'seasons': 3,
-  },
-  'F004': {
-    'id': 'F004',
-    'name': 'Latha Krishnan',
-    'village': 'Erattupetta',
-    'phone': '9834567890',
-    'age': 38,
-    'area': 1.1,
-    'stage': 'Nursery',
-    'notes': '',
-    'gpsLat': 9.8833,
-    'gpsLng': 76.7833,
-    'variety': 'BSS-1',
-    'plots': 1,
-    'seasons': 1,
-  },
-  'F005': {
-    'id': 'F005',
-    'name': 'Biju Thomas',
-    'village': 'Pala',
-    'phone': '9867890123',
-    'age': 46,
-    'area': 2.0,
-    'stage': 'Planting',
-    'notes': 'New to turmeric cultivation.',
-    'gpsLat': 9.7167,
-    'gpsLng': 76.6833,
-    'variety': 'IISR Pragati',
-    'plots': 2,
-    'seasons': 1,
-  },
-};
-
-class FarmerDetailScreen extends StatelessWidget {
+class FarmerDetailScreen extends ConsumerWidget {
   final String farmerId;
   const FarmerDetailScreen({super.key, required this.farmerId});
 
   @override
-  Widget build(BuildContext context) {
-    final f = _fakeDetails[farmerId];
+  Widget build(BuildContext context, WidgetRef ref) {
+    final farmer = ref.watch(farmerByIdProvider(farmerId));
+    final plotCount = ref.watch(farmerPlotCountProvider(farmerId));
+    final activeStage = ref.watch(farmerActiveSeasonProvider(farmerId));
 
-    if (f == null) {
+    if (farmer == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Farmer Detail')),
         body: const Center(child: Text('Farmer not found')),
@@ -103,83 +29,76 @@ class FarmerDetailScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(f['name'] as String),
+        title: Text(farmer.name),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Edit farmer',
-            onPressed: () {
-              // Phase 6: wire edit
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Edit coming in Phase 6')),
-              );
-            },
+            onPressed: () => _showEditSheet(context, ref, farmer),
           ),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ── Header card ────────────────────────────
-          _HeaderCard(farmer: f),
+          // ── Header card ──────────────────────────────
+          _HeaderCard(farmer: farmer, activeStage: activeStage),
           const SizedBox(height: 16),
-
-          // ── Stats row ──────────────────────────────
-          _StatsRow(farmer: f),
+          // ── Stats row ────────────────────────────────
+          _StatsRow(farmer: farmer, plotCount: plotCount),
           const SizedBox(height: 16),
-
-          // ── Contact & Location ─────────────────────
+          // ── Contact & Location ───────────────────────
           SectionHeader(title: 'Contact & Location'),
           const SizedBox(height: 10),
           _InfoCard(children: [
             _InfoRow(
               icon: Icons.phone,
               label: 'Mobile',
-              value: f['phone'] as String,
+              value: farmer.phone,
             ),
             _InfoRow(
               icon: Icons.location_on,
               label: 'Village',
-              value: f['village'] as String,
+              value: farmer.village,
             ),
             _InfoRow(
               icon: Icons.my_location,
               label: 'GPS',
-              value:
-                  '${f['gpsLat']}° N, ${f['gpsLng']}° E',
+              value: farmer.gpsLat != null && farmer.gpsLng != null
+                  ? '${farmer.gpsLat!.toStringAsFixed(4)}° N, '
+                      '${farmer.gpsLng!.toStringAsFixed(4)}° E'
+                  : 'Not captured',
             ),
           ]),
           const SizedBox(height: 16),
-
-          // ── Farm Details ───────────────────────────
+          // ── Farm Details ─────────────────────────────
           SectionHeader(title: 'Farm Details'),
           const SizedBox(height: 10),
           _InfoCard(children: [
             _InfoRow(
               icon: Icons.landscape,
               label: 'Total Area',
-              value: '${f['area']} ha',
+              value: '${farmer.areaHa} ha',
             ),
             _InfoRow(
-              icon: Icons.grass,
-              label: 'Variety',
-              value: f['variety'] as String,
+              icon: Icons.person,
+              label: 'Age',
+              value: '${farmer.age} yrs',
             ),
             _InfoRow(
               icon: Icons.map,
               label: 'Plots',
-              value: '${f['plots']} plots',
+              value: '$plotCount plot${plotCount == 1 ? '' : 's'}',
             ),
             _InfoRow(
-              icon: Icons.calendar_month,
-              label: 'Seasons',
-              value: '${f['seasons']} seasons',
+              icon: Icons.grass,
+              label: 'Current Stage',
+              value: activeStage ?? farmer.stage,
             ),
           ]),
           const SizedBox(height: 16),
-
-          // ── Notes ──────────────────────────────────
-          if ((f['notes'] as String).isNotEmpty) ...[
+          // ── Notes ────────────────────────────────────
+          if (farmer.notes != null && farmer.notes!.isNotEmpty) ...[
             SectionHeader(title: 'Notes'),
             const SizedBox(height: 10),
             Container(
@@ -190,15 +109,11 @@ class FarmerDetailScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.border),
               ),
-              child: Text(
-                f['notes'] as String,
-                style: AppTextStyles.body,
-              ),
+              child: Text(farmer.notes!, style: AppTextStyles.body),
             ),
             const SizedBox(height: 16),
           ],
-
-          // ── Actions ────────────────────────────────
+          // ── Quick Actions ────────────────────────────
           SectionHeader(title: 'Quick Actions'),
           const SizedBox(height: 10),
           Row(
@@ -207,9 +122,8 @@ class FarmerDetailScreen extends StatelessWidget {
                 child: _ActionButton(
                   icon: Icons.agriculture,
                   label: 'Add Season',
-                  onTap: () => context.push(
-                    '/add-season?farmerId=${f['id']}',
-                  ),
+                  onTap: () =>
+                      context.push('/add-season?farmerId=${farmer.id}'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -217,18 +131,16 @@ class FarmerDetailScreen extends StatelessWidget {
                 child: _ActionButton(
                   icon: Icons.map_outlined,
                   label: 'Add Plot',
-                  onTap: () => context.push(
-                    '/add-plot?farmerId=${f['id']}',
-                  ),
+                  onTap: () =>
+                      context.push('/add-plot?farmerId=${farmer.id}'),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
-
-          // ── Delete ─────────────────────────────────
+          // ── Delete ───────────────────────────────────
           OutlinedButton.icon(
-            onPressed: () => _confirmDelete(context),
+            onPressed: () => _confirmDelete(context, ref, farmer),
             icon: const Icon(Icons.delete_outline, color: AppColors.error),
             label: Text(
               'Remove Farmer',
@@ -244,7 +156,95 @@ class FarmerDetailScreen extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context) {
+  // ── Edit bottom sheet ───────────────────────────────
+  void _showEditSheet(
+      BuildContext context, WidgetRef ref, FarmerModel farmer) {
+    final nameCtrl = TextEditingController(text: farmer.name);
+    final phoneCtrl = TextEditingController(text: farmer.phone);
+    final villageCtrl = TextEditingController(text: farmer.village);
+    final areaCtrl =
+        TextEditingController(text: farmer.areaHa.toString());
+    final notesCtrl = TextEditingController(text: farmer.notes ?? '');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Edit Farmer', style: AppTextStyles.h2),
+            const SizedBox(height: 16),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Farmer Name *'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Mobile *'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: villageCtrl,
+              decoration: const InputDecoration(labelText: 'Village *'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: areaCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Area (ha) *'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: notesCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Notes'),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  await ref
+                      .read(farmersProvider.notifier)
+                      .updateFarmer(farmer.id, {
+                    'name': nameCtrl.text.trim(),
+                    'phone': phoneCtrl.text.trim(),
+                    'village': villageCtrl.text.trim(),
+                    'area_ha':
+                        double.tryParse(areaCtrl.text.trim()) ??
+                            farmer.areaHa,
+                    'notes': notesCtrl.text.trim(),
+                  });
+                  if (ctx.mounted) ctx.pop();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('Changes saved successfully')),
+                    );
+                  }
+                },
+                child: const Text('Save Changes'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Delete confirmation ─────────────────────────────
+  void _confirmDelete(
+      BuildContext context, WidgetRef ref, FarmerModel farmer) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -258,12 +258,17 @@ class FarmerDetailScreen extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               ctx.pop();
-              context.pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Farmer removed')),
-              );
+              await ref
+                  .read(farmersProvider.notifier)
+                  .deleteFarmer(farmer.id);
+              if (context.mounted) {
+                context.pop(); // back to farmers list
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Farmer removed')),
+                );
+              }
             },
             child: Text(
               'Remove',
@@ -276,18 +281,11 @@ class FarmerDetailScreen extends StatelessWidget {
   }
 }
 
-// ── Sub-widgets ───────────────────────────────────────
-
+// ── Header Card ───────────────────────────────────────────
 class _HeaderCard extends StatelessWidget {
-  final Map<String, dynamic> farmer;
-  const _HeaderCard({required this.farmer});
-
-  String get _initials => (farmer['name'] as String)
-      .trim()
-      .split(' ')
-      .take(2)
-      .map((w) => w[0].toUpperCase())
-      .join();
+  final FarmerModel farmer;
+  final String? activeStage;
+  const _HeaderCard({required this.farmer, required this.activeStage});
 
   @override
   Widget build(BuildContext context) {
@@ -304,7 +302,7 @@ class _HeaderCard extends StatelessWidget {
             radius: 32,
             backgroundColor: AppColors.successBg,
             child: Text(
-              _initials,
+              farmer.initials,
               style: AppTextStyles.h2.copyWith(color: AppColors.primary),
             ),
           ),
@@ -313,14 +311,14 @@ class _HeaderCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(farmer['name'] as String, style: AppTextStyles.h2),
+                Text(farmer.name, style: AppTextStyles.h2),
                 const SizedBox(height: 4),
                 Text(
-                  'ID: ${farmer['id']}  •  Age: ${farmer['age']}',
+                  'ID: ${farmer.id} • Age: ${farmer.age}',
                   style: AppTextStyles.caption,
                 ),
                 const SizedBox(height: 8),
-                AppBadge(label: farmer['stage'] as String),
+                AppBadge(label: activeStage ?? farmer.stage),
               ],
             ),
           ),
@@ -330,19 +328,21 @@ class _HeaderCard extends StatelessWidget {
   }
 }
 
+// ── Stats Row ─────────────────────────────────────────────
 class _StatsRow extends StatelessWidget {
-  final Map<String, dynamic> farmer;
-  const _StatsRow({required this.farmer});
+  final FarmerModel farmer;
+  final int plotCount;
+  const _StatsRow({required this.farmer, required this.plotCount});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _StatBox(label: 'Area', value: '${farmer['area']} ha'),
+        _StatBox(label: 'Area', value: '${farmer.areaHa} ha'),
         const SizedBox(width: 10),
-        _StatBox(label: 'Plots', value: '${farmer['plots']}'),
+        _StatBox(label: 'Plots', value: '$plotCount'),
         const SizedBox(width: 10),
-        _StatBox(label: 'Seasons', value: '${farmer['seasons']}'),
+        _StatBox(label: 'Stage', value: farmer.stage),
       ],
     );
   }
@@ -365,7 +365,8 @@ class _StatBox extends StatelessWidget {
         child: Column(
           children: [
             Text(value,
-                style: AppTextStyles.h2.copyWith(color: AppColors.primary)),
+                style:
+                    AppTextStyles.h2.copyWith(color: AppColors.primary)),
             const SizedBox(height: 2),
             Text(label, style: AppTextStyles.caption),
           ],
@@ -375,6 +376,7 @@ class _StatBox extends StatelessWidget {
   }
 }
 
+// ── Info Card ─────────────────────────────────────────────
 class _InfoCard extends StatelessWidget {
   final List<Widget> children;
   const _InfoCard({required this.children});
@@ -406,6 +408,7 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
+// ── Info Row ──────────────────────────────────────────────
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -432,6 +435,7 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+// ── Action Button ─────────────────────────────────────────
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -456,8 +460,8 @@ class _ActionButton extends StatelessWidget {
             Icon(icon, color: AppColors.primary, size: 22),
             const SizedBox(height: 6),
             Text(label,
-                style:
-                    AppTextStyles.label.copyWith(color: AppColors.primary)),
+                style: AppTextStyles.label
+                    .copyWith(color: AppColors.primary)),
           ],
         ),
       ),

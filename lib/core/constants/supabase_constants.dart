@@ -38,6 +38,7 @@ class SupabaseConstants {
   static const String hiveBoxFarmers      = 'farmers_cache';
   static const String hiveBoxPlots        = 'plots_cache';
   static const String hiveBoxSeasons      = 'seasons_cache';
+  static const String hiveBoxCropEvents = 'crop_events_cache';
   static const String hiveBoxEmissions    = 'emissions_cache';
   static const String hiveBoxPendingOps   = 'pending_ops';
   static const String hiveBoxSettings     = 'app_settings';

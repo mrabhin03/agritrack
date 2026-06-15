@@ -1,15 +1,15 @@
 // features/crops/providers/crops_provider.dart
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/season_model.dart';
 import '../models/crop_event_model.dart';
-import '../../../core/fake/fake_data.dart';
+import '../../../services/hive_service.dart';
 
 // ── Season filter (by farmer) ─────────────────────────
 final seasonsFilterFarmerProvider = StateProvider<String?>((ref) => null);
 
 // ── Master seasons list ───────────────────────────────
-// Layer 7 swap: replace body with repository.fetchAll()
+// Layer 6b: reads from Hive box
+// Layer 7 swap: replace body with repository.fetchAllSeasons()
 final seasonsProvider =
     AsyncNotifierProvider<SeasonsNotifier, List<SeasonModel>>(
   SeasonsNotifier.new,
@@ -19,7 +19,9 @@ class SeasonsNotifier extends AsyncNotifier<List<SeasonModel>> {
   @override
   Future<List<SeasonModel>> build() async {
     // Layer 7: return ref.read(cropsRepositoryProvider).fetchAllSeasons();
-    return FakeData.seasons;
+    final box = HiveService.seasonsBox;
+    return box.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
   Future<void> addSeason(Map<String, dynamic> data) async {
@@ -38,37 +40,41 @@ class SeasonsNotifier extends AsyncNotifier<List<SeasonModel>> {
       stage: 'Nursery',
       createdAt: DateTime.now(),
     );
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([newSeason, ...current]);
+    await HiveService.seasonsBox.put(newSeason.id, newSeason);
+    ref.invalidateSelf();
   }
 
   Future<void> updateSeasonStage(String id, String newStage) async {
     // Layer 7: await ref.read(cropsRepositoryProvider).updateStage(id, newStage);
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([
-      for (final s in current)
-        if (s.id == id) s.copyWith(stage: newStage) else s,
-    ]);
+    final box = HiveService.seasonsBox;
+    final existing = box.get(id);
+    if (existing == null) return;
+    await box.put(id, existing.copyWith(stage: newStage));
+    ref.invalidateSelf();
   }
 
   Future<void> updateSeasonStatus(String id, String newStatus) async {
     // Layer 7: await ref.read(cropsRepositoryProvider).updateStatus(id, newStatus);
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([
-      for (final s in current)
-        if (s.id == id) s.copyWith(status: newStatus) else s,
-    ]);
+    final box = HiveService.seasonsBox;
+    final existing = box.get(id);
+    if (existing == null) return;
+    await box.put(id, existing.copyWith(status: newStatus));
+    ref.invalidateSelf();
   }
 
   Future<void> deleteSeason(String id) async {
     // Layer 7: await ref.read(cropsRepositoryProvider).deleteSeason(id);
-    final current = state.valueOrNull ?? [];
-    state = AsyncData(current.where((s) => s.id != id).toList());
+    await HiveService.seasonsBox.delete(id);
+    ref.invalidateSelf();
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async => FakeData.seasons);
+    state = await AsyncValue.guard(() async {
+      final box = HiveService.seasonsBox;
+      return box.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    });
   }
 }
 
@@ -101,6 +107,8 @@ final activeSeasonsCountProvider = Provider<int>((ref) {
 });
 
 // ── Master crop events list ───────────────────────────
+// Layer 6b: reads from Hive box
+// Layer 7 swap: replace body with repository.fetchAllEvents()
 final cropEventsProvider =
     AsyncNotifierProvider<CropEventsNotifier, List<CropEventModel>>(
   CropEventsNotifier.new,
@@ -110,7 +118,9 @@ class CropEventsNotifier extends AsyncNotifier<List<CropEventModel>> {
   @override
   Future<List<CropEventModel>> build() async {
     // Layer 7: return ref.read(cropsRepositoryProvider).fetchAllEvents();
-    return FakeData.cropEvents;
+    final box = HiveService.cropEventsBox;
+    return box.values.toList()
+      ..sort((a, b) => b.eventDate.compareTo(a.eventDate));
   }
 
   Future<void> addEvent(Map<String, dynamic> data) async {
@@ -131,13 +141,17 @@ class CropEventsNotifier extends AsyncNotifier<List<CropEventModel>> {
       notes: data['notes'] as String?,
       createdAt: DateTime.now(),
     );
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([...current, newEvent]);
+    await HiveService.cropEventsBox.put(newEvent.id, newEvent);
+    ref.invalidateSelf();
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async => FakeData.cropEvents);
+    state = await AsyncValue.guard(() async {
+      final box = HiveService.cropEventsBox;
+      return box.values.toList()
+        ..sort((a, b) => b.eventDate.compareTo(a.eventDate));
+    });
   }
 }
 

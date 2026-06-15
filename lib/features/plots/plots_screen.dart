@@ -1,6 +1,6 @@
 // features/plots/plots_screen.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:go_router/go_router.dart';
@@ -8,26 +8,31 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/empty_state.dart';
+import '../farmers/providers/farmers_provider.dart';
+import 'models/plot_model.dart';
+import 'providers/plots_provider.dart';
 
 // ── Map layer definitions ─────────────────────────────
-enum _MapLayer { street, satellite, terrain, topo }
+// Terrain and Topo removed — not useful for field work.
+// Street: OSM standard.  Satellite: Esri World Imagery (free, no key).
+enum _MapLayer { street, satellite }
 
 extension _MapLayerX on _MapLayer {
   String get label {
     switch (this) {
-      case _MapLayer.street:    return 'Street';
-      case _MapLayer.satellite: return 'Satellite';
-      case _MapLayer.terrain:   return 'Terrain';
-      case _MapLayer.topo:      return 'Topo';
+      case _MapLayer.street:
+        return 'Street';
+      case _MapLayer.satellite:
+        return 'Satellite';
     }
   }
 
   IconData get icon {
     switch (this) {
-      case _MapLayer.street:    return Icons.map_outlined;
-      case _MapLayer.satellite: return Icons.satellite_alt_outlined;
-      case _MapLayer.terrain:   return Icons.landscape_outlined;
-      case _MapLayer.topo:      return Icons.terrain_outlined;
+      case _MapLayer.street:
+        return Icons.map_outlined;
+      case _MapLayer.satellite:
+        return Icons.satellite_alt_outlined;
     }
   }
 
@@ -36,95 +41,42 @@ extension _MapLayerX on _MapLayer {
       case _MapLayer.street:
         return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       case _MapLayer.satellite:
-        return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      case _MapLayer.terrain:
-        return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}';
-      case _MapLayer.topo:
-        return 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
+        // Esri World Imagery — free, no API key, global coverage
+        return 'https://server.arcgisonline.com/ArcGIS/rest/services/'
+            'World_Imagery/MapServer/tile/{z}/{y}/{x}';
     }
   }
 
+  // Satellite tiles are dark — use white/yellow marker accents
   bool get isDark => this == _MapLayer.satellite;
 }
 
-// ── Fake plots data ───────────────────────────────────
-final _fakePlots = [
-  {
-    'id': 'P001',
-    'farmerId': 'F001',
-    'farmerName': 'Arun Menon',
-    'name': 'South Field',
-    'areaHa': 1.2,
-    'soilType': 'Loamy',
-    'irrigation': 'Drip',
-    'crop': 'Turmeric',
-    'boundary': [
-      LatLng(9.295890, 76.669594),
-      LatLng(9.296886, 76.669404),
-      LatLng(9.298390, 76.669782),
-      LatLng(9.298559, 76.670392),
-      LatLng(9.297821, 76.671003),
-      LatLng(9.295806, 76.670577),
-    ],
-    'center': LatLng(9.297028, 76.670179),
-  },
-  {
-    'id': 'P002',
-    'farmerId': 'F001',
-    'farmerName': 'Arun Menon',
-    'name': 'North Field',
-    'areaHa': 0.8,
-    'soilType': 'Red laterite',
-    'irrigation': 'Rain-fed',
-    'crop': 'Turmeric',
-    'boundary': [
-      LatLng(10.0310, 76.3070),
-      LatLng(10.0320, 76.3080),
-      LatLng(10.0315, 76.3090),
-      LatLng(10.0305, 76.3080),
-    ],
-    'center': LatLng(10.0312, 76.3080),
-  },
-  {
-    'id': 'P003',
-    'farmerId': 'F002',
-    'farmerName': 'Priya Nair',
-    'name': 'Hill Plot',
-    'areaHa': 1.8,
-    'soilType': 'Sandy loam',
-    'irrigation': 'Sprinkler',
-    'crop': 'Turmeric',
-    'boundary': [
-      LatLng(10.0890, 77.0595),
-      LatLng(10.0900, 77.0610),
-      LatLng(10.0895, 77.0625),
-      LatLng(10.0880, 77.0610),
-    ],
-    'center': LatLng(10.0891, 77.0610),
-  },
-];
-
+// ── Plot accent colours ───────────────────────────────
 const _plotColors = [
   Color(0xFF2D6A4F),
   Color(0xFF40916C),
   Color(0xFF74C69D),
+  Color(0xFF1565C0),
+  Color(0xFF6A1B9A),
 ];
 
-class PlotsScreen extends StatefulWidget {
+Color _colorForIndex(int i) => _plotColors[i % _plotColors.length];
+
+// ── Screen ────────────────────────────────────────────
+class PlotsScreen extends ConsumerStatefulWidget {
   const PlotsScreen({super.key});
 
   @override
-  State<PlotsScreen> createState() => _PlotsScreenState();
+  ConsumerState<PlotsScreen> createState() => _PlotsScreenState();
 }
 
-class _PlotsScreenState extends State<PlotsScreen>
+class _PlotsScreenState extends ConsumerState<PlotsScreen>
     with TickerProviderStateMixin {
   final _mapController = MapController();
   String? _selectedPlotId;
   bool _showList = false;
   _MapLayer _activeLayer = _MapLayer.street;
 
-  // For animating the selected plot detail card
   late final AnimationController _detailAnim;
   late final Animation<Offset> _detailSlide;
 
@@ -147,17 +99,6 @@ class _PlotsScreenState extends State<PlotsScreen>
     super.dispose();
   }
 
-  Map<String, dynamic>? get _selectedPlot => _selectedPlotId == null
-      ? null
-      : _fakePlots.firstWhere((p) => p['id'] == _selectedPlotId,
-          orElse: () => {});
-
-  double get _totalArea =>
-      _fakePlots.fold(0.0, (sum, p) => sum + (p['areaHa'] as double));
-
-  int get _uniqueFarmerCount =>
-      _fakePlots.map((p) => p['farmerId']).toSet().length;
-
   void _selectPlot(String id, LatLng center) {
     final isSame = _selectedPlotId == id;
     setState(() {
@@ -179,78 +120,100 @@ class _PlotsScreenState extends State<PlotsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final plotsAsync = ref.watch(plotsProvider);
+    final plots = plotsAsync.valueOrNull ?? [];
+    final farmers = ref.watch(farmersProvider).valueOrNull ?? [];
+
+    // Build id → name map for farmer lookup
+    final farmerNames = {for (final f in farmers) f.id: f.name};
+
+    final selectedPlot =
+        _selectedPlotId == null ? null : plots.where((p) => p.id == _selectedPlotId).firstOrNull;
+    final selectedIndex =
+        selectedPlot == null ? 0 : plots.indexOf(selectedPlot);
+
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Stack(
-        children: [
-          // ── Full-screen map ───────────────────────
-          _buildMap(),
+      body: plotsAsync.when(
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+        error: (e, _) => Center(
+          child: Text('Error loading plots: $e', style: AppTextStyles.body),
+        ),
+        data: (_) => Stack(
+          children: [
+            // ── Full-screen map ─────────────────────────
+            _buildMap(plots, farmers: farmerNames),
 
-          // ── Top bar ───────────────────────────────
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 12,
-            right: 12,
-            child: _buildTopBar(),
-          ),
-
-          // ── Selected plot detail card ─────────────
-          if (_selectedPlot != null)
+            // ── Top bar ─────────────────────────────────
             Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
               left: 12,
               right: 12,
-              bottom: bottomPad + 80,
-              child: SlideTransition(
-                position: _detailSlide,
-                child: _PlotDetailCard(
-                  plot: _selectedPlot!,
-                  plotColor: _plotColors[
-                      _fakePlots.indexWhere((p) => p['id'] == _selectedPlotId) %
-                          _plotColors.length],
-                  onClose: _clearSelection,
-                  onNavigate: () {
-                    // TODO: navigate to plot detail screen
-                  },
+              child: _buildTopBar(plots),
+            ),
+
+            // ── Selected plot detail card ────────────────
+            if (selectedPlot != null)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: bottomPad + 80,
+                child: SlideTransition(
+                  position: _detailSlide,
+                  child: _PlotDetailCard(
+                    plot: selectedPlot,
+                    farmerName: farmerNames[selectedPlot.farmerId] ?? 'Unknown',
+                    plotColor: _colorForIndex(selectedIndex),
+                    onClose: _clearSelection,
+                    onNavigate: () {
+                      // TODO Phase 7: push to plot detail screen
+                    },
+                  ),
+                ),
+              ),
+
+            // ── Bottom action bar ────────────────────────
+            if (selectedPlot == null)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: bottomPad + 12,
+                child: _buildBottomActions(context, plots),
+              ),
+
+            // ── Plot list sheet ──────────────────────────
+            AnimatedSlide(
+              offset: _showList ? Offset.zero : const Offset(0, 1),
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: AnimatedOpacity(
+                opacity: _showList ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: _buildPlotListSheet(plots, farmerNames: farmerNames),
                 ),
               ),
             ),
-
-          // ── Bottom action bar ─────────────────────
-          if (_selectedPlot == null)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: bottomPad + 12,
-              child: _buildBottomActions(),
-            ),
-
-          // ── Plot list sheet ───────────────────────
-          AnimatedSlide(
-            offset: _showList ? Offset.zero : const Offset(0, 1),
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            child: AnimatedOpacity(
-              opacity: _showList ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 200),
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: _buildPlotListSheet(),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // ── Top bar: summary + layer switcher ────────────
-  Widget _buildTopBar() {
+  // ── Top bar: summary chips + layer toggle ────────────
+  Widget _buildTopBar(List<PlotModel> plots) {
+    final totalArea = plots.fold(0.0, (sum, p) => sum + p.areaHa);
+    final uniqueFarmers = plots.map((p) => p.farmerId).toSet().length;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Summary chip
+        // Summary pill
         Expanded(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -268,38 +231,40 @@ class _PlotsScreenState extends State<PlotsScreen>
             ),
             child: Row(
               children: [
-                // Plots count
                 _StatPill(
                   icon: Icons.crop_square_rounded,
-                  value: '${_fakePlots.length}',
+                  value: '${plots.length}',
                   label: 'plots',
                   color: AppColors.primary,
                 ),
                 const SizedBox(width: 6),
-                Text('·', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+                Text('·',
+                    style: TextStyle(
+                        color: AppColors.textDisabled, fontSize: 12)),
                 const SizedBox(width: 6),
-                // Total area
                 _StatPill(
                   icon: Icons.straighten_outlined,
-                  value: '${_totalArea.toStringAsFixed(1)}',
+                  value: totalArea.toStringAsFixed(1),
                   label: 'ha',
                   color: AppColors.accent,
                 ),
                 const SizedBox(width: 6),
-                Text('·', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+                Text('·',
+                    style: TextStyle(
+                        color: AppColors.textDisabled, fontSize: 12)),
                 const SizedBox(width: 6),
-                // Farmers
                 _StatPill(
                   icon: Icons.people_outline,
-                  value: '$_uniqueFarmerCount',
+                  value: '$uniqueFarmers',
                   label: 'farmers',
                   color: const Color(0xFF7B61FF),
                 ),
                 const Spacer(),
-                // Inline crop chip — handles tight width without overflowing
+                // Turmeric crop chip
                 Container(
                   constraints: const BoxConstraints(maxWidth: 88),
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: const Color(0xFFD8F3DC),
                     borderRadius: BorderRadius.circular(99),
@@ -307,7 +272,8 @@ class _PlotsScreenState extends State<PlotsScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.grass, size: 11, color: Color(0xFF2D6A4F)),
+                      const Icon(Icons.grass,
+                          size: 11, color: Color(0xFF2D6A4F)),
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
@@ -328,7 +294,7 @@ class _PlotsScreenState extends State<PlotsScreen>
           ),
         ),
         const SizedBox(width: 8),
-        // Layer switcher
+        // Layer switcher button
         _LayerSwitcher(
           activeLayer: _activeLayer,
           onLayerChanged: (l) => setState(() => _activeLayer = l),
@@ -337,8 +303,8 @@ class _PlotsScreenState extends State<PlotsScreen>
     );
   }
 
-  // ── Bottom action bar ─────────────────────────────
-  Widget _buildBottomActions() {
+  // ── Bottom action bar ────────────────────────────────
+  Widget _buildBottomActions(BuildContext context, List<PlotModel> plots) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -355,36 +321,38 @@ class _PlotsScreenState extends State<PlotsScreen>
       ),
       child: Row(
         children: [
-          // Show list button
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _showList = true),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.view_list_rounded,
-                        size: 17, color: AppColors.textSecondary),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Plot List',
-                      style: AppTextStyles.label.copyWith(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
+          // Plot list button (hidden when no plots)
+          if (plots.isNotEmpty) ...[
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _showList = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.view_list_rounded,
+                          size: 17, color: AppColors.textSecondary),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Plot List',
+                        style: AppTextStyles.label.copyWith(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
+            const SizedBox(width: 10),
+          ],
           // Add plot button
           Expanded(
             child: GestureDetector(
@@ -425,54 +393,66 @@ class _PlotsScreenState extends State<PlotsScreen>
     );
   }
 
-  // ── Map ───────────────────────────────────────────
-  Widget _buildMap() {
+  // ── Map ──────────────────────────────────────────────
+  Widget _buildMap(List<PlotModel> plots,
+      {required Map<String, String> farmers}) {
     final isDark = _activeLayer.isDark;
+
+    // Default centre: Kerala (Kottayam area — turmeric belt)
+    final center = plots.isNotEmpty
+        ? LatLng(plots.first.centroid[0], plots.first.centroid[1])
+        : const LatLng(9.5916, 76.5222);
+
     return FlutterMap(
       mapController: _mapController,
-      options: const MapOptions(
-        initialCenter: LatLng(9.297028, 76.670179),
+      options: MapOptions(
+        initialCenter: center,
         initialZoom: 14,
       ),
       children: [
+        // Tile layer — key forces rebuild when layer changes
         TileLayer(
           key: ValueKey(_activeLayer),
           urlTemplate: _activeLayer.urlTemplate,
           userAgentPackageName: 'com.agritrack',
         ),
+
+        // Plot polygons
         PolygonLayer(
-          polygons: _fakePlots.asMap().entries.map((e) {
+          polygons: plots.asMap().entries.map((e) {
             final plot = e.value;
-            final color = isDark
-                ? Colors.white
-                : _plotColors[e.key % _plotColors.length];
-            final isSelected = _selectedPlotId == plot['id'];
+            final color = isDark ? Colors.white : _colorForIndex(e.key);
+            final isSelected = _selectedPlotId == plot.id;
             return Polygon(
-              points: plot['boundary'] as List<LatLng>,
+              points: plot.boundary
+                  .map((p) => LatLng(p[0], p[1]))
+                  .toList(),
               color: color.withOpacity(isSelected ? 0.38 : 0.15),
               borderColor: isSelected
                   ? (isDark ? Colors.yellowAccent : AppColors.warning)
-                  : color.withOpacity(isSelected ? 1 : 0.8),
-              borderStrokeWidth: isSelected ? 3 : 1.8,
+                  : color.withOpacity(0.8),
+              borderStrokeWidth: isSelected ? 3.0 : 1.8,
             );
           }).toList(),
         ),
+
+        // Plot name markers
         MarkerLayer(
-          markers: _fakePlots.asMap().entries.map((e) {
+          markers: plots.asMap().entries.map((e) {
             final plot = e.value;
-            final color = _plotColors[e.key % _plotColors.length];
-            final isSelected = _selectedPlotId == plot['id'];
+            final color = _colorForIndex(e.key);
+            final isSelected = _selectedPlotId == plot.id;
             return Marker(
-              point: plot['center'] as LatLng,
+              point: LatLng(plot.centroid[0], plot.centroid[1]),
               width: 130,
               height: 40,
               child: GestureDetector(
                 onTap: () => _selectPlot(
-                    plot['id'] as String, plot['center'] as LatLng),
+                    plot.id, LatLng(plot.centroid[0], plot.centroid[1])),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: isSelected ? color : AppColors.surface,
                     borderRadius: BorderRadius.circular(8),
@@ -482,7 +462,8 @@ class _PlotsScreenState extends State<PlotsScreen>
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: color.withOpacity(isSelected ? 0.35 : 0.15),
+                        color:
+                            color.withOpacity(isSelected ? 0.35 : 0.15),
                         blurRadius: isSelected ? 10 : 5,
                         offset: const Offset(0, 2),
                       ),
@@ -502,7 +483,7 @@ class _PlotsScreenState extends State<PlotsScreen>
                       const SizedBox(width: 5),
                       Flexible(
                         child: Text(
-                          plot['name'] as String,
+                          plot.name,
                           style: AppTextStyles.caption.copyWith(
                             fontWeight: FontWeight.w700,
                             fontSize: 11,
@@ -524,8 +505,9 @@ class _PlotsScreenState extends State<PlotsScreen>
     );
   }
 
-  // ── Plot list bottom sheet ────────────────────────
-  Widget _buildPlotListSheet() {
+  // ── Plot list bottom sheet ────────────────────────────
+  Widget _buildPlotListSheet(List<PlotModel> plots,
+      {required Map<String, String> farmerNames}) {
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.58,
@@ -569,7 +551,7 @@ class _PlotsScreenState extends State<PlotsScreen>
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    '${_fakePlots.length}',
+                    '${plots.length}',
                     style: AppTextStyles.caption.copyWith(
                       color: AppColors.primary,
                       fontWeight: FontWeight.w700,
@@ -577,7 +559,6 @@ class _PlotsScreenState extends State<PlotsScreen>
                   ),
                 ),
                 const Spacer(),
-                // Close
                 GestureDetector(
                   onTap: () => setState(() => _showList = false),
                   child: Container(
@@ -598,24 +579,29 @@ class _PlotsScreenState extends State<PlotsScreen>
           const SizedBox(height: 10),
           const Divider(height: 1),
           Flexible(
-            child: _fakePlots.isEmpty
-                ? const EmptyState.noPlots()
+            child: plots.isEmpty
+                ? EmptyState.noPlots(
+                    onAction: () => context.push('/add-plot'))
                 : ListView.separated(
                     padding: EdgeInsets.fromLTRB(
-                      12, 12, 12,
+                      12,
+                      12,
+                      12,
                       MediaQuery.of(context).padding.bottom + 20,
                     ),
                     shrinkWrap: true,
-                    itemCount: _fakePlots.length,
+                    itemCount: plots.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (_, i) => _PlotListTile(
-                      plot: _fakePlots[i],
-                      plotColor: _plotColors[i % _plotColors.length],
-                      isSelected:
-                          _selectedPlotId == _fakePlots[i]['id'],
+                      plot: plots[i],
+                      farmerName:
+                          farmerNames[plots[i].farmerId] ?? 'Unknown',
+                      plotColor: _colorForIndex(i),
+                      isSelected: _selectedPlotId == plots[i].id,
                       onTap: () => _selectPlot(
-                        _fakePlots[i]['id'] as String,
-                        _fakePlots[i]['center'] as LatLng,
+                        plots[i].id,
+                        LatLng(plots[i].centroid[0],
+                            plots[i].centroid[1]),
                       ),
                     ),
                   ),
@@ -626,7 +612,7 @@ class _PlotsScreenState extends State<PlotsScreen>
   }
 }
 
-// ── Stat pill widget ──────────────────────────────────
+// ── Stat pill ─────────────────────────────────────────
 class _StatPill extends StatelessWidget {
   const _StatPill({
     required this.icon,
@@ -634,7 +620,6 @@ class _StatPill extends StatelessWidget {
     required this.label,
     required this.color,
   });
-
   final IconData icon;
   final String value;
   final String label;
@@ -666,13 +651,12 @@ class _StatPill extends StatelessWidget {
   }
 }
 
-// ── Layer switcher ────────────────────────────────────
+// ── Layer switcher button ─────────────────────────────
 class _LayerSwitcher extends StatelessWidget {
   const _LayerSwitcher({
     required this.activeLayer,
     required this.onLayerChanged,
   });
-
   final _MapLayer activeLayer;
   final ValueChanged<_MapLayer> onLayerChanged;
 
@@ -704,7 +688,7 @@ class _LayerSwitcher extends StatelessWidget {
               child: Text('Map Style', style: AppTextStyles.h3),
             ),
             const Divider(height: 1),
-            ...(_MapLayer.values.map((layer) {
+            ..._MapLayer.values.map((layer) {
               final isActive = layer == activeLayer;
               return ListTile(
                 leading: Container(
@@ -735,6 +719,12 @@ class _LayerSwitcher extends StatelessWidget {
                         : FontWeight.normal,
                   ),
                 ),
+                subtitle: Text(
+                  layer == _MapLayer.street
+                      ? 'OpenStreetMap — detailed roads & labels'
+                      : 'Esri World Imagery — high-res aerial view',
+                  style: AppTextStyles.caption,
+                ),
                 trailing: isActive
                     ? Container(
                         width: 22,
@@ -752,7 +742,7 @@ class _LayerSwitcher extends StatelessWidget {
                   Navigator.pop(context);
                 },
               );
-            })),
+            }),
             const SizedBox(height: 8),
           ],
         ),
@@ -793,12 +783,13 @@ class _LayerSwitcher extends StatelessWidget {
 class _PlotDetailCard extends StatelessWidget {
   const _PlotDetailCard({
     required this.plot,
+    required this.farmerName,
     required this.plotColor,
     required this.onClose,
     required this.onNavigate,
   });
-
-  final Map<String, dynamic> plot;
+  final PlotModel plot;
+  final String farmerName;
   final Color plotColor;
   final VoidCallback onClose;
   final VoidCallback onNavigate;
@@ -826,7 +817,7 @@ class _PlotDetailCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Coloured top accent bar
+          // Coloured accent bar at top
           Container(
             height: 4,
             decoration: BoxDecoration(
@@ -840,15 +831,14 @@ class _PlotDetailCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Row 1: name + close
+                // Name + close
                 Row(
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(plot['name'] as String,
-                              style: AppTextStyles.h3),
+                          Text(plot.name, style: AppTextStyles.h3),
                           const SizedBox(height: 2),
                           Row(
                             children: [
@@ -856,16 +846,13 @@ class _PlotDetailCard extends StatelessWidget {
                                   size: 12,
                                   color: AppColors.textSecondary),
                               const SizedBox(width: 3),
-                              Text(
-                                plot['farmerName'] as String,
-                                style: AppTextStyles.caption,
-                              ),
+                              Text(farmerName,
+                                  style: AppTextStyles.caption),
                             ],
                           ),
                         ],
                       ),
                     ),
-                    // Close
                     GestureDetector(
                       onTap: onClose,
                       child: Container(
@@ -884,26 +871,26 @@ class _PlotDetailCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Row 2: stat chips
+                // Stat chips row
                 Row(
                   children: [
                     _DetailChip(
                       icon: Icons.straighten_outlined,
-                      label: '${plot['areaHa']} ha',
+                      label: plot.areaLabel,
                       color: plotColor,
                     ),
                     const SizedBox(width: 6),
                     _DetailChip(
                       icon: Icons.terrain_outlined,
-                      label: plot['soilType'] as String,
+                      label: plot.soilType,
                     ),
                     const SizedBox(width: 6),
                     _DetailChip(
                       icon: Icons.water_drop_outlined,
-                      label: plot['irrigation'] as String,
+                      label: plot.irrigation,
                     ),
                     const Spacer(),
-                    // Navigate arrow
+                    // View button
                     GestureDetector(
                       onTap: onNavigate,
                       child: Container(
@@ -946,7 +933,6 @@ class _DetailChip extends StatelessWidget {
     required this.label,
     this.color,
   });
-
   final IconData icon;
   final String label;
   final Color? color;
@@ -981,17 +967,18 @@ class _DetailChip extends StatelessWidget {
 
 // ── Plot list tile ────────────────────────────────────
 class _PlotListTile extends StatelessWidget {
-  final Map<String, dynamic> plot;
-  final Color plotColor;
-  final bool isSelected;
-  final VoidCallback onTap;
-
   const _PlotListTile({
     required this.plot,
+    required this.farmerName,
     required this.plotColor,
     required this.isSelected,
     required this.onTap,
   });
+  final PlotModel plot;
+  final String farmerName;
+  final Color plotColor;
+  final bool isSelected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1021,7 +1008,7 @@ class _PlotListTile extends StatelessWidget {
         child: IntrinsicHeight(
           child: Row(
             children: [
-              // Color bar
+              // Colour bar
               Container(
                 width: 4,
                 decoration: BoxDecoration(
@@ -1032,10 +1019,10 @@ class _PlotListTile extends StatelessWidget {
                   ),
                 ),
               ),
-              // Farmer avatar
+              // Farmer avatar initial
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 12),
                 child: Container(
                   width: 38,
                   height: 38,
@@ -1045,7 +1032,7 @@ class _PlotListTile extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    (plot['farmerName'] as String)[0],
+                    farmerName.isNotEmpty ? farmerName[0] : '?',
                     style: AppTextStyles.labelLarge.copyWith(
                       color: plotColor,
                       fontWeight: FontWeight.w800,
@@ -1060,19 +1047,16 @@ class _PlotListTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Name + area
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              plot['name'] as String,
-                              style: AppTextStyles.h3,
-                            ),
+                            child: Text(plot.name,
+                                style: AppTextStyles.h3),
                           ),
                           Padding(
                             padding: const EdgeInsets.only(right: 12),
                             child: Text(
-                              '${plot['areaHa']} ha',
+                              plot.areaLabel,
                               style: AppTextStyles.labelLarge.copyWith(
                                 color: plotColor,
                                 fontWeight: FontWeight.w700,
@@ -1082,23 +1066,16 @@ class _PlotListTile extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      // Farmer name
-                      Text(
-                        plot['farmerName'] as String,
-                        style: AppTextStyles.caption,
-                      ),
+                      Text(farmerName, style: AppTextStyles.caption),
                       const SizedBox(height: 6),
-                      // Tags row
                       Row(
                         children: [
-                          _MiniTag(plot['soilType'] as String),
+                          _MiniTag(plot.soilType),
                           const SizedBox(width: 5),
-                          _MiniTag(plot['irrigation'] as String),
+                          _MiniTag(plot.irrigation),
                           const SizedBox(width: 5),
-                          _MiniTag(
-                            plot['crop'] as String,
-                            color: AppColors.success,
-                          ),
+                          _MiniTag(plot.crop,
+                              color: AppColors.success),
                         ],
                       ),
                     ],

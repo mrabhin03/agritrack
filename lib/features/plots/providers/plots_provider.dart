@@ -1,10 +1,10 @@
 // features/plots/providers/plots_provider.dart
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/plot_model.dart';
-import '../../../core/fake/fake_data.dart';
+import '../../../services/hive_service.dart';
 
 // ── Master plots list ─────────────────────────────────
+// Layer 6b: reads from Hive box
 // Layer 7 swap: replace body with repository.fetchAll()
 final plotsProvider =
     AsyncNotifierProvider<PlotsNotifier, List<PlotModel>>(
@@ -15,7 +15,9 @@ class PlotsNotifier extends AsyncNotifier<List<PlotModel>> {
   @override
   Future<List<PlotModel>> build() async {
     // Layer 7: return ref.read(plotsRepositoryProvider).fetchAll();
-    return FakeData.plots;
+    final box = HiveService.plotsBox;
+    return box.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
   Future<void> addPlot(Map<String, dynamic> data) async {
@@ -31,35 +33,37 @@ class PlotsNotifier extends AsyncNotifier<List<PlotModel>> {
       crop: data['crop'] as String? ?? 'Turmeric',
       createdAt: DateTime.now(),
     );
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([...current, newPlot]);
+    await HiveService.plotsBox.put(newPlot.id, newPlot);
+    ref.invalidateSelf();
   }
 
   Future<void> updatePlot(String id, Map<String, dynamic> data) async {
     // Layer 7: await ref.read(plotsRepositoryProvider).update(id, data);
-    final current = state.valueOrNull ?? [];
-    state = AsyncData([
-      for (final p in current)
-        if (p.id == id)
-          p.copyWith(
-            name: data['name'] as String? ?? p.name,
-            soilType: data['soil_type'] as String? ?? p.soilType,
-            irrigation: data['irrigation'] as String? ?? p.irrigation,
-          )
-        else
-          p,
-    ]);
+    final box = HiveService.plotsBox;
+    final existing = box.get(id);
+    if (existing == null) return;
+    final updated = existing.copyWith(
+      name: data['name'] as String? ?? existing.name,
+      soilType: data['soil_type'] as String? ?? existing.soilType,
+      irrigation: data['irrigation'] as String? ?? existing.irrigation,
+    );
+    await box.put(id, updated);
+    ref.invalidateSelf();
   }
 
   Future<void> deletePlot(String id) async {
     // Layer 7: await ref.read(plotsRepositoryProvider).delete(id);
-    final current = state.valueOrNull ?? [];
-    state = AsyncData(current.where((p) => p.id != id).toList());
+    await HiveService.plotsBox.delete(id);
+    ref.invalidateSelf();
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async => FakeData.plots);
+    state = await AsyncValue.guard(() async {
+      final box = HiveService.plotsBox;
+      return box.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    });
   }
 }
 
