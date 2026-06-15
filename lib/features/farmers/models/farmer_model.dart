@@ -1,23 +1,28 @@
 // features/farmers/models/farmer_model.dart
+
+import 'package:hive/hive.dart';
 import '../../../core/utils/formatters.dart';
 
-class FarmerModel {
-  final String id;
-  final String name;
-  final String phone;
-  final int age;
-  final String village;
-  final double areaHa;
-  final String? notes;
-  final double? gpsLat;
-  final double? gpsLng;
-  final String? photoUrl;
-  final String stage;
-  final bool isDeleted;
-  final DateTime createdAt;
-  final DateTime updatedAt;
+part 'farmer_model.g.dart';
 
-  const FarmerModel({
+@HiveType(typeId: 0)
+class FarmerModel extends HiveObject {
+  @HiveField(0)  final String id;
+  @HiveField(1)  final String name;
+  @HiveField(2)  final String phone;
+  @HiveField(3)  final int age;
+  @HiveField(4)  final String village;
+  @HiveField(5)  final double areaHa;
+  @HiveField(6)  final String? notes;
+  @HiveField(7)  final double? gpsLat;
+  @HiveField(8)  final double? gpsLng;
+  @HiveField(9)  final String? photoUrl;
+  @HiveField(10) final String stage;
+  @HiveField(11) final bool isDeleted;
+  @HiveField(12) final DateTime createdAt;
+  @HiveField(13) final DateTime updatedAt;
+
+  FarmerModel({
     required this.id,
     required this.name,
     required this.phone,
@@ -34,7 +39,7 @@ class FarmerModel {
     required this.updatedAt,
   });
 
-  // ── Derived getters ───────────────────────────────
+  // ── Derived getters ───────────────────────────────────
   String get initials => name.trim().split(' ')
       .take(2)
       .map((w) => w[0].toUpperCase())
@@ -43,61 +48,60 @@ class FarmerModel {
   bool get hasGps => gpsLat != null && gpsLng != null;
 
   String get gpsLabel => hasGps
-      ? '${gpsLat!.toStringAsFixed(4)}° N, '
-        '${gpsLng!.toStringAsFixed(4)}° E'
+      ? '${gpsLat!.toStringAsFixed(4)}° N, ${gpsLng!.toStringAsFixed(4)}° E'
       : 'No GPS captured';
 
   String get areaLabel => Formatters.haShort(areaHa);
 
   String get registeredLabel => Formatters.dateLabel(createdAt);
 
-  // ── fromJson (Supabase response) ──────────────────
+  // ── fromJson (Supabase — Layer 7) ────────────────────
   factory FarmerModel.fromJson(Map<String, dynamic> j) {
     return FarmerModel(
-      id:        j['id'] as String,
-      name:      j['name'] as String,
-      phone:     j['phone'] as String,
-      age:       j['age'] as int,
-      village:   j['village'] as String,
-      areaHa:    (j['area_ha'] as num).toDouble(),
-      notes:     j['notes'] as String?,
-      gpsLat:    (j['gps_lat'] as num?)?.toDouble(),
-      gpsLng:    (j['gps_lng'] as num?)?.toDouble(),
+      id:        j['id']        as String,
+      name:      j['name']      as String,
+      phone:     j['phone']     as String,
+      age:       j['age']       as int,
+      village:   j['village']   as String,
+      areaHa:    (j['area_ha']  as num).toDouble(),
+      notes:     j['notes']     as String?,
+      gpsLat:    (j['gps_lat']  as num?)?.toDouble(),
+      gpsLng:    (j['gps_lng']  as num?)?.toDouble(),
       photoUrl:  j['photo_url'] as String?,
-      stage:     j['stage'] as String? ?? 'Nursery',
+      stage:     j['stage']     as String? ?? 'Nursery',
       isDeleted: j['is_deleted'] as bool? ?? false,
       createdAt: DateTime.parse(j['created_at'] as String),
       updatedAt: DateTime.parse(j['updated_at'] as String),
     );
   }
 
-  // ── toJson (for Supabase insert/update) ───────────
+  // ── toJson (Supabase insert/update — Layer 7) ─────────
   Map<String, dynamic> toJson() => {
-    'name':      name,
-    'phone':     phone,
-    'age':       age,
-    'village':   village,
-    'area_ha':   areaHa,
-    'notes':     notes,
-    'gps_lat':   gpsLat,
-    'gps_lng':   gpsLng,
+    'name':       name,
+    'phone':      phone,
+    'age':        age,
+    'village':    village,
+    'area_ha':    areaHa,
+    'notes':      notes,
+    'gps_lat':    gpsLat,
+    'gps_lng':    gpsLng,
     'is_deleted': isDeleted,
   };
 
-  // ── copyWith ──────────────────────────────────────
+  // ── copyWith ──────────────────────────────────────────
   FarmerModel copyWith({
-    String? id,
-    String? name,
-    String? phone,
-    int? age,
-    String? village,
-    double? areaHa,
-    String? notes,
-    double? gpsLat,
-    double? gpsLng,
-    String? photoUrl,
-    String? stage,
-    bool? isDeleted,
+    String?   id,
+    String?   name,
+    String?   phone,
+    int?      age,
+    String?   village,
+    double?   areaHa,
+    String?   notes,
+    double?   gpsLat,
+    double?   gpsLng,
+    String?   photoUrl,
+    String?   stage,
+    bool?     isDeleted,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -119,8 +123,9 @@ class FarmerModel {
     );
   }
 
-  // ── Fake data (used in Layer 6 providers) ─────────
-  static List<FarmerModel> fakeList() => [
+  // ── Seed data (first-run only, written to Hive box) ───
+  // Used in hive_service.dart to pre-populate on fresh install
+  static List<FarmerModel> seedList() => [
     FarmerModel(
       id: 'F001', name: 'Arun Menon', phone: '9876543210',
       age: 42, village: 'Kothamangalam', areaHa: 2.4,
@@ -166,8 +171,7 @@ class FarmerModel {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is FarmerModel && other.id == id;
+      identical(this, other) || other is FarmerModel && other.id == id;
 
   @override
   int get hashCode => id.hashCode;
