@@ -1,27 +1,20 @@
 // features/plots/add_plot_screen.dart
-
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:go_router/go_router.dart';
-
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/constants/crop_constants.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/section_header.dart';
+import '../farmers/providers/farmers_provider.dart';
+import 'providers/plots_provider.dart';
 
-const _farmerNames = {
-  'F001': 'Arun Menon',
-  'F002': 'Priya Nair',
-  'F003': 'Suresh Kumar',
-  'F004': 'Latha Krishnan',
-  'F005': 'Biju Thomas',
-};
-
+// ── Shoelace area calculation ─────────────────────────
 double polygonAreaHa(List<LatLng> points) {
   if (points.length < 3) return 0;
   const r = 6371000.0;
@@ -42,15 +35,15 @@ double polygonAreaHa(List<LatLng> points) {
   return area.abs() / 2 / 10000;
 }
 
-class AddPlotScreen extends StatefulWidget {
+class AddPlotScreen extends ConsumerStatefulWidget {
   const AddPlotScreen({super.key, this.farmerId});
   final String? farmerId;
 
   @override
-  State<AddPlotScreen> createState() => _AddPlotScreenState();
+  ConsumerState<AddPlotScreen> createState() => _AddPlotScreenState();
 }
 
-class _AddPlotScreenState extends State<AddPlotScreen> {
+class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _mapController = MapController();
@@ -58,13 +51,15 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
   final List<LatLng> _points = [];
   String? _soilType;
   String? _irrigation;
+  String? _selectedFarmerId;
   bool _loading = false;
 
-  // ── Drag state ───────────────────────────────────────────
+  // ── Vertex drag state ─────────────────────────────────
   int? _selectedIndex;
   bool _isDragging = false;
   Offset? _dragStartFinger;
   Offset? _dragStartScreen;
+  bool _useSatellite = false;
 
   static const _initialCenter = LatLng(9.297028, 76.670179);
   static const double _hitRadius = 28.0;
@@ -72,32 +67,39 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
   double get _areaHa => polygonAreaHa(_points);
 
   @override
+  void initState() {
+    super.initState();
+    _selectedFarmerId = widget.farmerId;
+  }
+
+  @override
   void dispose() {
     _nameCtrl.dispose();
     super.dispose();
   }
 
+  // ── Validators ────────────────────────────────────────
   String? _validateName(String? v) {
     if (v == null || v.trim().isEmpty) return 'Plot name is required';
     if (v.trim().length < 2) return 'At least 2 characters';
     return null;
   }
 
-  Offset? _latLngToOffset(LatLng point, BoxConstraints mapConstraints) {
+  // ── Vertex drag helpers ───────────────────────────────
+  Offset? _latLngToOffset(LatLng point) {
     try {
-      final camera = _mapController.camera;
-      final px = camera.latLngToScreenPoint(point);
+      final px = _mapController.camera.latLngToScreenPoint(point);
       return Offset(px.x, px.y);
     } catch (_) {
       return null;
     }
   }
 
-  int? _hitTestVertex(Offset tapOffset, BoxConstraints constraints) {
+  int? _hitTestVertex(Offset tapOffset) {
     int? best;
     double bestDist = _hitRadius;
     for (int i = 0; i < _points.length; i++) {
-      final px = _latLngToOffset(_points[i], constraints);
+      final px = _latLngToOffset(_points[i]);
       if (px == null) continue;
       final d = (tapOffset - px).distance;
       if (d < bestDist) {
@@ -108,10 +110,10 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
     return best;
   }
 
-  void _onPointerDown(PointerDownEvent e, BoxConstraints constraints) {
-    final hit = _hitTestVertex(e.localPosition, constraints);
+  void _onPointerDown(PointerDownEvent e) {
+    final hit = _hitTestVertex(e.localPosition);
     if (hit != null) {
-      final screenPt = _latLngToOffset(_points[hit], constraints);
+      final screenPt = _latLngToOffset(_points[hit]);
       setState(() {
         _selectedIndex = hit;
         _isDragging = false;
@@ -127,13 +129,11 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
     }
   }
 
-  void _onPointerMove(PointerMoveEvent e, BoxConstraints constraints) {
+  void _onPointerMove(PointerMoveEvent e) {
     if (_selectedIndex == null) return;
     if (_dragStartFinger == null || _dragStartScreen == null) return;
-
     final fingerDelta = e.localPosition - _dragStartFinger!;
     final newScreen = _dragStartScreen! + fingerDelta;
-
     try {
       final camera = _mapController.camera;
       final origin = camera.pixelOrigin;
@@ -151,7 +151,7 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
     } catch (_) {}
   }
 
-  void _onPointerUp(PointerUpEvent e, BoxConstraints constraints) {
+  void _onPointerUp(PointerUpEvent e) {
     setState(() {
       _isDragging = false;
       _dragStartFinger = null;
@@ -185,16 +185,19 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
   }
 
   void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: isError ? AppColors.error : AppColors.success,
+    ));
   }
 
+  // ── Submit — wired to plotsProvider ──────────────────
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedFarmerId == null) {
+      _showSnack('Please select a farmer', isError: true);
+      return;
+    }
     if (_points.length < 3) {
       _showSnack('Draw a plot boundary (min 3 points)', isError: true);
       return;
@@ -209,23 +212,51 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
     }
 
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _loading = false);
-    _showSnack('Plot saved successfully');
-    context.pop();
+    try {
+      // Convert LatLng list → [[lat,lng], ...] for PlotModel
+      final boundary = _points
+          .map((p) => [p.latitude, p.longitude])
+          .toList();
+
+      await ref.read(plotsProvider.notifier).addPlot({
+        'farmer_id': _selectedFarmerId,
+        'name': _nameCtrl.text.trim(),
+        'boundary': boundary,
+        'area_ha': _areaHa,
+        'soil_type': _soilType,
+        'irrigation': _irrigation,
+        'crop': 'Turmeric',
+      });
+
+      if (!mounted) return;
+      _showSnack('Plot saved and shown on map');
+      context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('Failed to save plot. Please try again.', isError: true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final farmerName = widget.farmerId != null
-        ? (_farmerNames[widget.farmerId] ?? widget.farmerId)
+    final farmersAsync = ref.watch(farmersProvider);
+    final farmers =
+        farmersAsync.valueOrNull?.where((f) => !f.isDeleted).toList() ?? [];
+
+    // Resolve farmer name for pill display
+    final farmerName = _selectedFarmerId != null
+        ? farmers
+            .where((f) => f.id == _selectedFarmerId)
+            .firstOrNull
+            ?.name
         : null;
 
-    final areaLabel = _points.length >= 3
-        ? '${_areaHa.toStringAsFixed(2)} ha'
-        : '— ha';
-    final pointsLabel = '${_points.length} pt${_points.length == 1 ? '' : 's'}';
+    final areaLabel =
+        _points.length >= 3 ? '${_areaHa.toStringAsFixed(2)} ha' : '— ha';
+    final pointsLabel =
+        '${_points.length} pt${_points.length == 1 ? '' : 's'}';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -243,22 +274,16 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
             child: Text(
               'Save',
               style: AppTextStyles.body.copyWith(
-                color: AppColors.textOnPrimary,
-                fontWeight: FontWeight.w600,
-              ),
+                  color: AppColors.textOnPrimary, fontWeight: FontWeight.w600),
             ),
           ),
         ],
       ),
       body: Column(
         children: [
-          // ── Map — flex 5 (~55% of screen) ──────────────────
-          Expanded(
-            flex: 5,
-            child: _buildMapSection(),
-          ),
-
-          // ── Form — flex 4, scrollable so it never overflows ─
+          // ── Map — 55% ────────────────────────────────
+          Expanded(flex: 5, child: _buildMapSection()),
+          // ── Form — 45%, scrollable ────────────────────
           Expanded(
             flex: 4,
             child: SafeArea(
@@ -267,7 +292,7 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                 physics: const ClampingScrollPhysics(),
                 child: Form(
                   key: _formKey,
-                  child: _buildCompactForm(farmerName),
+                  child: _buildForm(farmerName, farmers, farmersAsync.isLoading),
                 ),
               ),
             ),
@@ -277,20 +302,46 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
     );
   }
 
-  Widget _buildCompactForm(String? farmerName) {
+  // ── Form ──────────────────────────────────────────────
+  Widget _buildForm(String? farmerName, List farmers, bool loadingFarmers) {
     return Container(
       color: AppColors.background,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Farmer pill (optional) ──────────────────────────
-          if (farmerName != null) ...[
-            _FarmerPill(name: farmerName, id: widget.farmerId!),
-            const SizedBox(height: 8),
-          ],
+          // ── Farmer selector ─────────────────────────
+          AppCard(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            child: loadingFarmers
+                ? const SizedBox(
+                    height: 48,
+                    child: Center(
+                        child: CircularProgressIndicator(
+                            color: AppColors.primary)))
+                : DropdownButtonFormField<String>(
+                    value: _selectedFarmerId,
+                    decoration: const InputDecoration(
+                      labelText: 'Farmer *',
+                      prefixIcon: Icon(Icons.person_outline, size: 18),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    ),
+                    hint: const Text('Select farmer…',
+                        overflow: TextOverflow.ellipsis),
+                    items: farmers
+                        .map((f) => DropdownMenuItem<String>(
+                            value: f.id, child: Text(f.name)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _selectedFarmerId = v),
+                    validator: (v) =>
+                        v == null ? 'Please select a farmer' : null,
+                  ),
+          ),
+          const SizedBox(height: 8),
 
-          // ── Fields card ─────────────────────────────────────
+          // ── Plot name + soil + irrigation ─────────────
           AppCard(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
             child: Column(
@@ -327,8 +378,8 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                         hint: const Text('Select…',
                             overflow: TextOverflow.ellipsis),
                         items: CropConstants.soilTypes
-                            .map((s) =>
-                                DropdownMenuItem(value: s, child: Text(s)))
+                            .map((s) => DropdownMenuItem(
+                                value: s, child: Text(s)))
                             .toList(),
                         onChanged: (v) => setState(() => _soilType = v),
                       ),
@@ -349,8 +400,8 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                         hint: const Text('Select…',
                             overflow: TextOverflow.ellipsis),
                         items: CropConstants.irrigationTypes
-                            .map((i) =>
-                                DropdownMenuItem(value: i, child: Text(i)))
+                            .map((i) => DropdownMenuItem(
+                                value: i, child: Text(i)))
                             .toList(),
                         onChanged: (v) => setState(() => _irrigation = v),
                       ),
@@ -360,10 +411,9 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 8),
 
-          // ── Crop + Area info row ────────────────────────────
+          // ── Crop + Area info row ──────────────────────
           Row(
             children: [
               Expanded(
@@ -381,13 +431,15 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
               Expanded(
                 child: _InfoTile(
                   icon: Icons.straighten_outlined,
-                  label: 'Area',
+                  label: 'Calculated Area',
                   child: Text(
                     _points.length >= 3
                         ? '${_areaHa.toStringAsFixed(2)} ha'
                         : '— ha',
                     style: AppTextStyles.labelLarge.copyWith(
-                      color: AppColors.primary,
+                      color: _points.length >= 3
+                          ? AppColors.primary
+                          : AppColors.textDisabled,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -395,10 +447,9 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 10),
 
-          // ── Save ────────────────────────────────────────────
+          // ── Save / Cancel ─────────────────────────────
           ElevatedButton.icon(
             onPressed: _loading ? null : _submit,
             icon: _loading
@@ -406,19 +457,13 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
+                        strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.check, size: 16),
             label: Text(_loading ? 'Saving…' : 'Save Plot'),
             style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 44),
-            ),
+                minimumSize: const Size(double.infinity, 44)),
           ),
           const SizedBox(height: 6),
-
-          // ── Cancel ──────────────────────────────────────────
           TextButton(
             onPressed: () => context.pop(),
             style: TextButton.styleFrom(
@@ -433,17 +478,17 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
     );
   }
 
+  // ── Map section ───────────────────────────────────────
   Widget _buildMapSection() {
     return Container(
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
+          border: Border(bottom: BorderSide(color: AppColors.border))),
       child: LayoutBuilder(
         builder: (context, constraints) {
           return Listener(
-            onPointerDown: (e) => _onPointerDown(e, constraints),
-            onPointerMove: (e) => _onPointerMove(e, constraints),
-            onPointerUp: (e) => _onPointerUp(e, constraints),
+            onPointerDown: _onPointerDown,
+            onPointerMove: _onPointerMove,
+            onPointerUp: _onPointerUp,
             child: Stack(
               children: [
                 FlutterMap(
@@ -461,21 +506,21 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                   ),
                   children: [
                     TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.agritrack',
-                    ),
+  key: ValueKey(_useSatellite),
+  urlTemplate: _useSatellite
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  userAgentPackageName: 'com.agritrack',
+),
                     if (_points.length >= 2)
-                      PolygonLayer(
-                        polygons: [
-                          Polygon(
-                            points: _points,
-                            color: AppColors.primary.withOpacity(0.18),
-                            borderColor: AppColors.primary,
-                            borderStrokeWidth: 2.5,
-                          ),
-                        ],
-                      ),
+                      PolygonLayer(polygons: [
+                        Polygon(
+                          points: _points,
+                          color: AppColors.primary.withOpacity(0.18),
+                          borderColor: AppColors.primary,
+                          borderStrokeWidth: 2.5,
+                        ),
+                      ]),
                     MarkerLayer(
                       markers: _points.asMap().entries.map((e) {
                         final isSelected = e.key == _selectedIndex;
@@ -484,25 +529,22 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                           width: isSelected ? 36 : 26,
                           height: isSelected ? 36 : 26,
                           child: _VertexMarker(
-                            index: e.key + 1,
-                            isSelected: isSelected,
-                          ),
+                              index: e.key + 1, isSelected: isSelected),
                         );
                       }).toList(),
                     ),
                   ],
                 ),
 
-                // ── Hint / selection banner ──────────────────
+                // ── Hint / drag banner ────────────────────
                 if (_selectedIndex != null)
                   Positioned(
                     bottom: 10,
                     left: 10,
                     right: 70,
                     child: _MapSelectedBanner(
-                      index: _selectedIndex! + 1,
-                      isDragging: _isDragging,
-                    ),
+                        index: _selectedIndex! + 1,
+                        isDragging: _isDragging),
                   )
                 else if (_points.isEmpty)
                   const Positioned(
@@ -512,28 +554,35 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
                     child: _MapHintBanner(),
                   ),
 
-                // ── Undo / Clear controls ────────────────────
-                Positioned(
-                  bottom: 10,
-                  right: 10,
-                  child: Column(
-                    children: [
-                      _MapIconButton(
-                        icon: Icons.undo,
-                        tooltip: 'Undo last point',
-                        enabled: _points.isNotEmpty,
-                        onTap: _undoPoint,
-                      ),
-                      const SizedBox(height: 8),
-                      _MapIconButton(
-                        icon: Icons.delete_outline,
-                        tooltip: 'Clear all points',
-                        enabled: _points.isNotEmpty,
-                        onTap: _clearPoints,
-                      ),
-                    ],
-                  ),
-                ),
+                // ── Undo / Clear ──────────────────────────
+                // ── Satellite toggle + Undo / Clear ──────
+Positioned(
+  top: 10,
+  right: 10,
+  child: _MapLayerToggle(
+    isSatellite: _useSatellite,
+    onToggle: () => setState(() => _useSatellite = !_useSatellite),
+  ),
+),
+Positioned(
+  bottom: 10,
+  right: 10,
+  child: Column(children: [
+    _MapIconButton(
+      icon: Icons.undo,
+      tooltip: 'Undo last point',
+      enabled: _points.isNotEmpty && !_loading,
+      onTap: _undoPoint,
+    ),
+    const SizedBox(height: 8),
+    _MapIconButton(
+      icon: Icons.delete_outline,
+      tooltip: 'Clear all points',
+      enabled: _points.isNotEmpty && !_loading,
+      onTap: _clearPoints,
+    ),
+  ]),
+),
               ],
             ),
           );
@@ -543,7 +592,7 @@ class _AddPlotScreenState extends State<AddPlotScreen> {
   }
 }
 
-// ── Stats chip in AppBar ────────────────────────────────────────
+// ── Stats chip in AppBar ──────────────────────────────
 class _StatsChip extends StatelessWidget {
   const _StatsChip({required this.label});
   final String label;
@@ -557,54 +606,17 @@ class _StatsChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white.withOpacity(0.3)),
       ),
-      child: Text(
-        label,
-        style: AppTextStyles.caption.copyWith(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
+      child: Text(label,
+          style: AppTextStyles.caption.copyWith(
+              color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500)),
     );
   }
 }
 
-// ── Farmer pill ─────────────────────────────────────────────────
-class _FarmerPill extends StatelessWidget {
-  const _FarmerPill({required this.name, required this.id});
-  final String name;
-  final String id;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.person, size: 15, color: AppColors.accent),
-          const SizedBox(width: 6),
-          Text(name, style: AppTextStyles.labelLarge),
-          const SizedBox(width: 6),
-          Text(id, style: AppTextStyles.caption),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Info tile (crop / area) ─────────────────────────────────────
+// ── Info tile (area / crop display) ──────────────────
 class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.label,
-    required this.child,
-  });
+  const _InfoTile(
+      {required this.icon, required this.label, required this.child});
   final IconData icon;
   final String label;
   final Widget child;
@@ -614,10 +626,9 @@ class _InfoTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border)),
       child: Row(
         children: [
           Icon(icon, size: 15, color: AppColors.accent),
@@ -636,93 +647,7 @@ class _InfoTile extends StatelessWidget {
   }
 }
 
-// ── Selected point banner ───────────────────────────────────────
-class _MapSelectedBanner extends StatelessWidget {
-  const _MapSelectedBanner({
-    required this.index,
-    required this.isDragging,
-  });
-  final int index;
-  final bool isDragging;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.primary.withOpacity(0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(
-            isDragging ? Icons.open_with : Icons.touch_app,
-            size: 16,
-            color: AppColors.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              isDragging
-                  ? 'Dragging point $index…'
-                  : 'Point $index selected — drag to reposition',
-              style: AppTextStyles.caption.copyWith(
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Hint banner ─────────────────────────────────────────────────
-class _MapHintBanner extends StatelessWidget {
-  const _MapHintBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.touch_app_outlined,
-              size: 16, color: AppColors.accent),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Tap the map to mark each corner of the plot',
-              style: AppTextStyles.caption,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Numbered vertex marker ──────────────────────────────────────
+// ── Vertex marker ─────────────────────────────────────
 class _VertexMarker extends StatelessWidget {
   const _VertexMarker({required this.index, this.isSelected = false});
   final int index;
@@ -735,31 +660,99 @@ class _VertexMarker extends StatelessWidget {
         color: isSelected ? AppColors.accent : AppColors.primary,
         shape: BoxShape.circle,
         border: Border.all(
-          color: isSelected ? AppColors.primary : Colors.white,
-          width: isSelected ? 3 : 2,
-        ),
+            color: isSelected ? AppColors.primary : Colors.white,
+            width: isSelected ? 3 : 2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isSelected ? 0.3 : 0.2),
-            blurRadius: isSelected ? 8 : 4,
-            offset: const Offset(0, 1),
-          ),
+              color: Colors.black.withOpacity(isSelected ? 0.3 : 0.2),
+              blurRadius: isSelected ? 8 : 4,
+              offset: const Offset(0, 1))
         ],
       ),
       alignment: Alignment.center,
-      child: Text(
-        '$index',
-        style: AppTextStyles.badge.copyWith(
-          color: Colors.white,
-          fontSize: isSelected ? 12 : 10,
-          fontWeight: FontWeight.bold,
-        ),
+      child: Text('$index',
+          style: AppTextStyles.caption.copyWith(
+              color: Colors.white,
+              fontSize: isSelected ? 12 : 10,
+              fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
+// ── Map hint banner ───────────────────────────────────
+class _MapHintBanner extends StatelessWidget {
+  const _MapHintBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+          color: AppColors.surface.withOpacity(0.96),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2))
+          ]),
+      child: Row(
+        children: [
+          const Icon(Icons.touch_app_outlined,
+              size: 16, color: AppColors.accent),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text('Tap the map to mark each corner of the plot',
+                  style: AppTextStyles.caption)),
+        ],
       ),
     );
   }
 }
 
-// ── Small floating icon button ──────────────────────────────────
+// ── Selected/dragging banner ──────────────────────────
+class _MapSelectedBanner extends StatelessWidget {
+  const _MapSelectedBanner(
+      {required this.index, required this.isDragging});
+  final int index;
+  final bool isDragging;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+          color: AppColors.surface.withOpacity(0.96),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.primary.withOpacity(0.5)),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2))
+          ]),
+      child: Row(
+        children: [
+          Icon(isDragging ? Icons.open_with : Icons.touch_app,
+              size: 16, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isDragging
+                  ? 'Dragging point $index…'
+                  : 'Point $index selected — drag to reposition',
+              style:
+                  AppTextStyles.caption.copyWith(color: AppColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Map icon button ───────────────────────────────────
 class _MapIconButton extends StatelessWidget {
   const _MapIconButton({
     required this.icon,
@@ -782,22 +775,66 @@ class _MapIconButton extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.border),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2))
+              ]),
+          child: Icon(icon,
+              size: 18,
+              color: enabled
+                  ? AppColors.textPrimary
+                  : AppColors.textDisabled),
+        ),
+      ),
+    );
+  }
+}
+// ── Map layer toggle (satellite ↔ street) ─────────────
+class _MapLayerToggle extends StatelessWidget {
+  const _MapLayerToggle({required this.isSatellite, required this.onToggle});
+  final bool isSatellite;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onToggle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSatellite ? Icons.map_outlined : Icons.satellite_alt_outlined,
+              size: 15,
+              color: AppColors.textPrimary,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              isSatellite ? 'Street' : 'Satellite',
+              style: AppTextStyles.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
               ),
-            ],
-          ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: enabled ? AppColors.textPrimary : AppColors.textDisabled,
-          ),
+            ),
+          ],
         ),
       ),
     );

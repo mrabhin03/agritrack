@@ -1,5 +1,6 @@
 // features/carbon/carbon_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -7,185 +8,142 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/section_header.dart';
+import '../crops/providers/crops_provider.dart';
+import 'models/emission_model.dart';
+import 'providers/carbon_provider.dart';
 
-// ── Fake emission data ────────────────────────────────
-const _fakeSummary = {
-  'totalCO2e': 1240.5,
-  'n2oCO2e': 890.2,
-  'dieselCO2e': 268.0,
-  'electricityCO2e': 82.3,
-  'intensityPerHa': 413.5,
-  'intensityPerTonne': 32.6,
-  'totalAreaHa': 3.0,
-  'isLowEmissions': true,
-};
-
-const _fakeRecords = [
-  {
-    'id': 'E001',
-    'seasonId': 'S001',
-    'farmerName': 'Arun Menon',
-    'date': '15/03/2025',
-    'nitrogenKg': 50.0,
-    'dieselL': 10.0,
-    'electricityKwh': 0.0,
-    'n2oCO2e': 445.1,
-    'dieselCO2e': 26.8,
-    'totalCO2e': 471.9,
-  },
-  {
-    'id': 'E002',
-    'seasonId': 'S001',
-    'farmerName': 'Arun Menon',
-    'date': '30/04/2025',
-    'nitrogenKg': 50.0,
-    'dieselL': 10.0,
-    'electricityKwh': 10.0,
-    'n2oCO2e': 445.1,
-    'dieselCO2e': 26.8,
-    'totalCO2e': 480.1,
-  },
-  {
-    'id': 'E003',
-    'seasonId': 'S002',
-    'farmerName': 'Priya Nair',
-    'date': '10/02/2025',
-    'nitrogenKg': 25.0,
-    'dieselL': 5.0,
-    'electricityKwh': 5.0,
-    'n2oCO2e': 222.6,
-    'dieselCO2e': 13.4,
-    'totalCO2e': 240.1,
-  },
-];
-
-const _breakdown = [
-  {'label': 'N₂O (Fertiliser)', 'value': 890.2, 'color': Color(0xFF2D6A4F)},
-  {'label': 'CO₂ (Diesel)',     'value': 268.0, 'color': Color(0xFFF4A261)},
-  {'label': 'CO₂ (Grid)',       'value': 82.3,  'color': Color(0xFF2196F3)},
-];
-
-class CarbonScreen extends StatefulWidget {
+class CarbonScreen extends ConsumerStatefulWidget {
   const CarbonScreen({super.key});
 
   @override
-  State<CarbonScreen> createState() => _CarbonScreenState();
+  ConsumerState<CarbonScreen> createState() => _CarbonScreenState();
 }
 
-class _CarbonScreenState extends State<CarbonScreen> {
+class _CarbonScreenState extends ConsumerState<CarbonScreen> {
   bool _showRecords = false;
 
   @override
   Widget build(BuildContext context) {
+    final emissionsAsync = ref.watch(carbonProvider);
+    final records = ref.watch(filteredEmissionsProvider);
+    final summary = ref.watch(carbonSummaryProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 100),
-        children: [
-          _buildKpiCards(),
-
-          SectionHeader(
-            title: 'Emission Breakdown',
-            icon: Icons.bar_chart_outlined,
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _EmissionBreakdownChart(
-              breakdown: _breakdown,
-              total: _fakeSummary['totalCO2e'] as double,
+      body: emissionsAsync.when(
+        loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.primary)),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: AppTextStyles.body)),
+        data: (_) => ListView(
+          padding: const EdgeInsets.only(bottom: 100),
+          children: [
+            _buildKpiCards(summary),
+            SectionHeader(
+              title: 'Emission Breakdown',
+              icon: Icons.bar_chart_outlined,
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
             ),
-          ),
-
-          SectionHeader(
-            title: 'Emission Intensity',
-            icon: Icons.speed_outlined,
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _IntensityCard(
-                    label: 'Per Hectare',
-                    value:
-                        '${(_fakeSummary['intensityPerHa'] as double).toStringAsFixed(1)}',
-                    unit: 'kg CO₂e/ha',
-                    icon: Icons.landscape_outlined,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _IntensityCard(
-                    label: 'Per Tonne',
-                    value:
-                        '${(_fakeSummary['intensityPerTonne'] as double).toStringAsFixed(1)}',
-                    unit: 'kg CO₂e/t',
-                    icon: Icons.agriculture_outlined,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          SectionHeader(
-            title: 'Emission Records',
-            icon: Icons.receipt_long_outlined,
-            actionLabel: _showRecords ? 'Hide' : 'Show all',
-            onAction: () => setState(() => _showRecords = !_showRecords),
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
-          ),
-
-          if (_fakeRecords.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: EmptyState.noEmissions(),
-            )
-          else if (_showRecords)
-            ...List.generate(
-              _fakeRecords.length,
-              (i) => Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: _EmissionRecordCard(record: _fakeRecords[i]),
-              ),
-            )
-          else
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _EmissionRecordCard(record: _fakeRecords[0]),
+              child: summary.totalCo2eKg > 0
+                  ? _EmissionBreakdownChart(summary: summary)
+                  : const _NoDataCard(
+                      message: 'No emissions logged yet'),
             ),
-
-          // ── IPCC footnote ─────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info_outline,
-                    size: 13, color: AppColors.textDisabled),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'IPCC defaults: N₂O = 1.25% of N × 298 GWP · Diesel = 2.68 kg CO₂e/L',
-                    style: AppTextStyles.caption
-                        .copyWith(color: AppColors.textDisabled),
+            SectionHeader(
+              title: 'Emission Intensity',
+              icon: Icons.speed_outlined,
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _IntensityCard(
+                      label: 'Avg Per Hectare',
+                      value: summary.avgIntensityPerHa
+                          .toStringAsFixed(1),
+                      unit: 'kg CO₂e/ha',
+                      icon: Icons.landscape_outlined,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _IntensityCard(
+                      label: 'Records Logged',
+                      value: '${summary.recordCount}',
+                      unit: 'entries',
+                      icon: Icons.receipt_long_outlined,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            SectionHeader(
+              title: 'Emission Records',
+              icon: Icons.receipt_long_outlined,
+              actionLabel: records.length > 1
+                  ? (_showRecords ? 'Hide' : 'Show all')
+                  : null,
+              onAction: records.length > 1
+                  ? () => setState(() => _showRecords = !_showRecords)
+                  : null,
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+            ),
+            if (records.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: EmptyState.noEmissions(
+                  onAction: () => context.push('/add-emission'),
+                ),
+              )
+            else if (_showRecords)
+              ...List.generate(
+                records.length,
+                (i) => Padding(
+                  padding:
+                      const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: _EmissionRecordCard(record: records[i]),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _EmissionRecordCard(record: records[0]),
+              ),
+            // ── IPCC footnote ─────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline,
+                      size: 13, color: AppColors.textDisabled),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'IPCC defaults: N₂O = 1.25% of N × 298 GWP · Diesel = 2.68 kg CO₂e/L',
+                      style: AppTextStyles.caption
+                          .copyWith(color: AppColors.textDisabled),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
       floatingActionButton: _LogEmissionButton(
         onTap: () => context.push('/add-emission'),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.centerFloat,
     );
   }
 
-  Widget _buildKpiCards() {
-    final isLow = _fakeSummary['isLowEmissions'] as bool;
+  Widget _buildKpiCards(CarbonSummary summary) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Column(
@@ -195,7 +153,6 @@ class _CarbonScreenState extends State<CarbonScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Gradient icon container
                 Container(
                   width: 52,
                   height: 52,
@@ -221,19 +178,19 @@ class _CarbonScreenState extends State<CarbonScreen> {
                       Text('Total Emissions', style: AppTextStyles.label),
                       const SizedBox(height: 3),
                       Text(
-                        '${((_fakeSummary['totalCO2e'] as double) / 1000).toStringAsFixed(2)} tCO₂e',
+                        '${(summary.totalCo2eKg / 1000).toStringAsFixed(2)} tCO₂e',
                         style: AppTextStyles.metricLarge
                             .copyWith(color: AppColors.primary),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${(_fakeSummary['totalAreaHa'] as double).toStringAsFixed(1)} ha mapped',
+                        '${summary.recordCount} record${summary.recordCount == 1 ? '' : 's'} logged',
                         style: AppTextStyles.caption,
                       ),
                     ],
                   ),
                 ),
-                EmissionBadge(isLow: isLow),
+                EmissionBadge(isLow: summary.isLowEmissions),
               ],
             ),
           ),
@@ -245,8 +202,7 @@ class _CarbonScreenState extends State<CarbonScreen> {
                 child: _MiniKpiCard(
                   label: 'N₂O',
                   sublabel: 'Fertiliser',
-                  value:
-                      '${(_fakeSummary['n2oCO2e'] as double).toStringAsFixed(0)} kg',
+                  value: '${summary.n2oCo2eKg.toStringAsFixed(0)} kg',
                   color: AppColors.primary,
                   icon: Icons.grass_outlined,
                 ),
@@ -257,7 +213,7 @@ class _CarbonScreenState extends State<CarbonScreen> {
                   label: 'CO₂',
                   sublabel: 'Diesel',
                   value:
-                      '${(_fakeSummary['dieselCO2e'] as double).toStringAsFixed(0)} kg',
+                      '${summary.dieselCo2eKg.toStringAsFixed(0)} kg',
                   color: AppColors.warning,
                   icon: Icons.local_gas_station_outlined,
                 ),
@@ -268,7 +224,7 @@ class _CarbonScreenState extends State<CarbonScreen> {
                   label: 'CO₂',
                   sublabel: 'Grid',
                   value:
-                      '${(_fakeSummary['electricityCO2e'] as double).toStringAsFixed(0)} kg',
+                      '${summary.electricityCo2eKg.toStringAsFixed(0)} kg',
                   color: AppColors.info,
                   icon: Icons.bolt_outlined,
                 ),
@@ -348,7 +304,6 @@ class _MiniKpiCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Tinted icon pill
           Container(
             width: 32,
             height: 32,
@@ -359,8 +314,7 @@ class _MiniKpiCard extends StatelessWidget {
             child: Icon(icon, size: 16, color: color),
           ),
           const SizedBox(height: 8),
-          Text(value,
-              style: AppTextStyles.h3.copyWith(color: color)),
+          Text(value, style: AppTextStyles.h3.copyWith(color: color)),
           const SizedBox(height: 2),
           Text(label,
               style: AppTextStyles.label
@@ -378,7 +332,6 @@ class _IntensityCard extends StatelessWidget {
   final String value;
   final String unit;
   final IconData icon;
-
   const _IntensityCard({
     required this.label,
     required this.value,
@@ -414,18 +367,51 @@ class _IntensityCard extends StatelessWidget {
   }
 }
 
-// ── Emission Breakdown Chart ──────────────────────────
-class _EmissionBreakdownChart extends StatelessWidget {
-  final List<Map<String, dynamic>> breakdown;
-  final double total;
-
-  const _EmissionBreakdownChart({
-    required this.breakdown,
-    required this.total,
-  });
+// ── No-data fallback card ─────────────────────────────
+class _NoDataCard extends StatelessWidget {
+  final String message;
+  const _NoDataCard({required this.message});
 
   @override
   Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.all(20),
+      child: Center(
+        child: Text(
+          message,
+          style: AppTextStyles.caption,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Emission Breakdown Chart (live from CarbonSummary) ───
+class _EmissionBreakdownChart extends StatelessWidget {
+  final CarbonSummary summary;
+  const _EmissionBreakdownChart({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final breakdown = [
+      {
+        'label': 'N₂O (Fertiliser)',
+        'value': summary.n2oCo2eKg,
+        'color': AppColors.primary,
+      },
+      {
+        'label': 'CO₂ (Diesel)',
+        'value': summary.dieselCo2eKg,
+        'color': AppColors.warning,
+      },
+      {
+        'label': 'CO₂ (Grid)',
+        'value': summary.electricityCo2eKg,
+        'color': AppColors.info,
+      },
+    ];
+    final total = summary.totalCo2eKg;
+
     return AppCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -435,7 +421,11 @@ class _EmissionBreakdownChart extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: Row(
               children: breakdown.map((b) {
-                final flex = ((b['value'] as double) / total * 100).round();
+                final value = b['value'] as double;
+                final flex = total > 0
+                    ? (value / total * 100).round().clamp(0, 100)
+                    : 0;
+                if (flex == 0) return const SizedBox.shrink();
                 return Expanded(
                   flex: flex,
                   child: Container(
@@ -447,10 +437,11 @@ class _EmissionBreakdownChart extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          // Legend — one row per source, cleaner than cramped columns
+          // Legend
           ...breakdown.map((b) {
+            final value = b['value'] as double;
             final pct =
-                ((b['value'] as double) / total * 100).toStringAsFixed(0);
+                total > 0 ? (value / total * 100).toStringAsFixed(0) : '0';
             final color = b['color'] as Color;
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -470,7 +461,7 @@ class _EmissionBreakdownChart extends StatelessWidget {
                           .copyWith(color: AppColors.textPrimary)),
                   const Spacer(),
                   Text(
-                    '${(b['value'] as double).toStringAsFixed(0)} kg',
+                    '${value.toStringAsFixed(0)} kg',
                     style: AppTextStyles.label
                         .copyWith(color: AppColors.textSecondary),
                   ),
@@ -493,15 +484,17 @@ class _EmissionBreakdownChart extends StatelessWidget {
   }
 }
 
-// ── Emission Record Card ──────────────────────────────
-class _EmissionRecordCard extends StatelessWidget {
-  final Map<String, dynamic> record;
+// ── Emission Record Card (live EmissionModel) ─────────
+class _EmissionRecordCard extends ConsumerWidget {
+  final EmissionModel record;
   const _EmissionRecordCard({required this.record});
 
   @override
-  Widget build(BuildContext context) {
-    final electricityKwh = record['electricityKwh'] as double;
-    final hasElectricity = electricityKwh > 0;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final season = ref.watch(seasonByIdProvider(record.seasonId));
+    final hasElectricity = record.electricityCo2eKg > 0;
+    final hasDiesel = record.dieselCo2eKg > 0;
+    final hasN2o = record.n2oCo2eKg > 0;
 
     return AppAccentCard(
       accentColor: AppColors.primary,
@@ -514,9 +507,13 @@ class _EmissionRecordCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(record['farmerName'] as String,
-                        style: AppTextStyles.h3),
-                    Text(record['date'] as String,
+                    Text(
+                      season != null
+                          ? '${season.variety} season'
+                          : 'Season ${record.seasonId}',
+                      style: AppTextStyles.h3,
+                    ),
+                    Text(record.calculatedAtLabel,
                         style: AppTextStyles.caption),
                   ],
                 ),
@@ -525,9 +522,9 @@ class _EmissionRecordCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 10, vertical: 6),
                 child: Text(
-                  '${(record['totalCO2e'] as double).toStringAsFixed(1)} kg CO₂e',
-                  style: AppTextStyles.label
-                      .copyWith(color: AppColors.primary),
+                  '${record.totalCo2eKg.toStringAsFixed(1)} kg CO₂e',
+                  style:
+                      AppTextStyles.label.copyWith(color: AppColors.primary),
                 ),
               ),
             ],
@@ -535,31 +532,40 @@ class _EmissionRecordCard extends StatelessWidget {
           const SizedBox(height: 10),
           const Divider(height: 1),
           const SizedBox(height: 10),
-          // Input chips — always show all three, dim zero values
+          // CO2e breakdown chips — dim zero-value sources
           Wrap(
             spacing: 8,
             runSpacing: 6,
             children: [
               _InputChip(
                 icon: Icons.grass_outlined,
-                label: 'N: ${record['nitrogenKg']} kg',
+                label: 'N₂O: ${record.n2oCo2eKg.toStringAsFixed(1)} kg',
                 color: AppColors.primary,
-                dimmed: false,
+                dimmed: !hasN2o,
               ),
               _InputChip(
                 icon: Icons.local_gas_station_outlined,
-                label: 'Diesel: ${record['dieselL']} L',
+                label:
+                    'Diesel: ${record.dieselCo2eKg.toStringAsFixed(1)} kg',
                 color: AppColors.warning,
-                dimmed: false,
+                dimmed: !hasDiesel,
               ),
               _InputChip(
                 icon: Icons.bolt_outlined,
-                label: 'Grid: ${electricityKwh.toStringAsFixed(0)} kWh',
+                label:
+                    'Grid: ${record.electricityCo2eKg.toStringAsFixed(1)} kg',
                 color: AppColors.info,
                 dimmed: !hasElectricity,
               ),
             ],
           ),
+          if (record.intensityPerHa != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${record.intensityPerHaLabel} per hectare',
+              style: AppTextStyles.caption,
+            ),
+          ],
         ],
       ),
     );

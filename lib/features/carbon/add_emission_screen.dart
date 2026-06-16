@@ -1,5 +1,6 @@
 // features/carbon/add_emission_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -7,35 +8,31 @@ import '../../core/constants/crop_constants.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/section_header.dart';
+import '../crops/providers/crops_provider.dart';
+import '../plots/providers/plots_provider.dart';
+import 'providers/carbon_provider.dart';
 
-class AddEmissionScreen extends StatefulWidget {
+class AddEmissionScreen extends ConsumerStatefulWidget {
   final String? seasonId;
   const AddEmissionScreen({super.key, this.seasonId});
 
   @override
-  State<AddEmissionScreen> createState() => _AddEmissionScreenState();
+  ConsumerState<AddEmissionScreen> createState() =>
+      _AddEmissionScreenState();
 }
 
-class _AddEmissionScreenState extends State<AddEmissionScreen> {
+class _AddEmissionScreenState extends ConsumerState<AddEmissionScreen> {
   final _formKey = GlobalKey<FormState>();
-
   String? _selectedSeasonId;
   DateTime? _entryDate;
   bool _loading = false;
 
   // Input controllers
-  final _nCtrl     = TextEditingController();
+  final _nCtrl = TextEditingController();
+  final _organicNCtrl = TextEditingController();
   final _dieselCtrl = TextEditingController();
-  final _elecCtrl  = TextEditingController();
+  final _elecCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
-
-  // Fake seasons for dropdown (replaced Layer 6)
-  final _seasonOptions = const [
-    {'id': 'S001', 'label': 'Arun Menon — IISR Pragati (Jan 2025)'},
-    {'id': 'S002', 'label': 'Priya Nair — IISR Prabha (Nov 2024)'},
-    {'id': 'S003', 'label': 'Suresh Kumar — Co-1 (Sep 2024)'},
-    {'id': 'S004', 'label': 'Latha Krishnan — BSS-1 (Feb 2025)'},
-  ];
 
   @override
   void initState() {
@@ -43,11 +40,13 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
     if (widget.seasonId != null) {
       _selectedSeasonId = widget.seasonId;
     }
+    _entryDate = DateTime.now();
   }
 
   @override
   void dispose() {
     _nCtrl.dispose();
+    _organicNCtrl.dispose();
     _dieselCtrl.dispose();
     _elecCtrl.dispose();
     _notesCtrl.dispose();
@@ -57,10 +56,13 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
   // ── Live emission preview ─────────────────────────
   double get _n2oCO2e {
     final n = double.tryParse(_nCtrl.text) ?? 0;
-    return n *
-        CropConstants.ipccN2oEmissionFactor *
-        (44 / 28) *
-        CropConstants.n2oGwp;
+    final organicN = double.tryParse(_organicNCtrl.text) ?? 0;
+    final synthetic =
+        n * CropConstants.ipccN2oEmissionFactor * (44 / 28) *
+            CropConstants.n2oGwp;
+    final organic =
+        organicN * 0.008 * (44 / 28) * CropConstants.n2oGwp;
+    return synthetic + organic;
   }
 
   double get _dieselCO2e {
@@ -82,7 +84,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: _entryDate ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
       helpText: 'Select Entry Date',
@@ -113,7 +115,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
     return null;
   }
 
-  // ── Submit ────────────────────────────────────────
+  // ── Submit → save to Hive via provider ────────────
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedSeasonId == null) {
@@ -128,19 +130,43 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
       _showSnack('Enter at least one input value');
       return;
     }
+
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _loading = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Emissions updated: ${_totalCO2e.toStringAsFixed(1)} kg CO₂e',
+
+    try {
+      // Look up the season's plot to get area_ha (for intensity calc)
+      final season = ref.read(seasonByIdProvider(_selectedSeasonId!));
+      double areaHa = 0;
+      if (season?.plotId != null) {
+        final plot = ref.read(plotByIdProvider(season!.plotId!));
+        areaHa = plot?.areaHa ?? 0;
+      }
+
+      await ref.read(carbonProvider.notifier).addEmission({
+        'season_id': _selectedSeasonId,
+        'nitrogen_kg': double.tryParse(_nCtrl.text) ?? 0,
+        'organic_n_kg': double.tryParse(_organicNCtrl.text) ?? 0,
+        'diesel_l': double.tryParse(_dieselCtrl.text) ?? 0,
+        'electricity_kwh': double.tryParse(_elecCtrl.text) ?? 0,
+        'area_ha': areaHa,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Emissions updated: ${_totalCO2e.toStringAsFixed(1)} kg CO₂e',
+          ),
+          backgroundColor: AppColors.success,
         ),
-        backgroundColor: AppColors.success,
-      ),
-    );
-    context.pop();
+      );
+      context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('Error saving emission: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   void _showSnack(String msg) {
@@ -150,6 +176,9 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final seasonsAsync = ref.watch(seasonsProvider);
+    final seasons = seasonsAsync.valueOrNull ?? [];
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -182,29 +211,34 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: AppCard(
                 padding: const EdgeInsets.all(16),
-                child: DropdownButtonFormField<String>(
-                  value: _selectedSeasonId,
-                  decoration: const InputDecoration(
-                    labelText: 'Season *',
-                    prefixIcon: Icon(Icons.agriculture_outlined),
-                  ),
-                  hint: const Text('Select season...'),
-                  isExpanded: true,
-                  items: _seasonOptions
-                      .map((s) => DropdownMenuItem(
-                            value: s['id'],
-                            child: Text(
-                              s['label']!,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ))
-                      .toList(),
-                  onChanged: (v) =>
-                      setState(() => _selectedSeasonId = v),
-                ),
+                child: seasons.isEmpty
+                    ? Text(
+                        'No seasons yet — add a season first',
+                        style: AppTextStyles.caption,
+                      )
+                    : DropdownButtonFormField<String>(
+                        value: _selectedSeasonId,
+                        decoration: const InputDecoration(
+                          labelText: 'Season *',
+                          prefixIcon:
+                              Icon(Icons.agriculture_outlined),
+                        ),
+                        hint: const Text('Select season...'),
+                        isExpanded: true,
+                        items: seasons
+                            .map((s) => DropdownMenuItem(
+                                  value: s.id,
+                                  child: Text(
+                                    '${s.variety} — ${s.stage} (${s.farmerId})',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
+                            .toList(),
+                        onChanged: (v) =>
+                            setState(() => _selectedSeasonId = v),
+                      ),
               ),
             ),
-
             // ── Entry date ────────────────────────────
             SectionHeader(
               title: 'Entry Date',
@@ -247,7 +281,6 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                 ),
               ),
             ),
-
             // ── Inputs ────────────────────────────────
             SectionHeader(
               title: 'Input Usage',
@@ -260,7 +293,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    // Nitrogen
+                    // Synthetic Nitrogen
                     TextFormField(
                       controller: _nCtrl,
                       validator: _validateNonNegative,
@@ -269,7 +302,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                               decimal: true),
                       onChanged: (_) => setState(() {}),
                       decoration: const InputDecoration(
-                        labelText: 'Nitrogen Applied (kg)',
+                        labelText: 'Synthetic Nitrogen (kg)',
                         hintText: 'e.g. 50',
                         prefixIcon: Icon(Icons.grass_outlined),
                         suffixText: 'kg',
@@ -279,7 +312,25 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
-
+                    // Organic Nitrogen
+                    TextFormField(
+                      controller: _organicNCtrl,
+                      validator: _validateNonNegative,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(
+                              decimal: true),
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Organic Nitrogen (kg)',
+                        hintText: 'e.g. 20 (compost/manure N)',
+                        prefixIcon: Icon(Icons.eco_outlined),
+                        suffixText: 'kg',
+                        helperText:
+                            'IPCC EF: 0.8% of organic N → N₂O × 298 GWP',
+                        helperStyle: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     // Diesel
                     TextFormField(
                       controller: _dieselCtrl,
@@ -291,15 +342,14 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Diesel Used (L)',
                         hintText: 'e.g. 10',
-                        prefixIcon: Icon(
-                            Icons.local_gas_station_outlined),
+                        prefixIcon:
+                            Icon(Icons.local_gas_station_outlined),
                         suffixText: 'L',
                         helperText: '2.68 kg CO₂e per litre',
                         helperStyle: TextStyle(fontSize: 11),
                       ),
                     ),
                     const SizedBox(height: 14),
-
                     // Electricity
                     TextFormField(
                       controller: _elecCtrl,
@@ -322,23 +372,19 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                 ),
               ),
             ),
-
             // ── Live emission preview ──────────────────
             if (_totalCO2e > 0) ...[
               SectionHeader(
                 title: 'Emission Preview',
                 icon: Icons.eco_outlined,
-                padding:
-                    const EdgeInsets.fromLTRB(16, 20, 16, 10),
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
               ),
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: AppCard(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // Total + badge
                       Row(
                         children: [
                           Expanded(
@@ -348,11 +394,9 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                               children: [
                                 Text(
                                   '${_totalCO2e.toStringAsFixed(1)} kg CO₂e',
-                                  style: AppTextStyles
-                                      .metricLarge
+                                  style: AppTextStyles.metricLarge
                                       .copyWith(
-                                    color: AppColors.primary,
-                                  ),
+                                          color: AppColors.primary),
                                 ),
                                 Text(
                                   'Total estimated emissions',
@@ -367,8 +411,6 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                       const SizedBox(height: 14),
                       const Divider(height: 1),
                       const SizedBox(height: 14),
-
-                      // Breakdown rows
                       _PreviewRow(
                         icon: Icons.grass_outlined,
                         label: 'N₂O (Fertiliser)',
@@ -389,8 +431,6 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                         value: _elecCO2e,
                         color: AppColors.info,
                       ),
-
-                      // Stacked bar
                       if (_totalCO2e > 0) ...[
                         const SizedBox(height: 14),
                         ClipRRect(
@@ -399,9 +439,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                             children: [
                               if (_n2oCO2e > 0)
                                 Expanded(
-                                  flex: (_n2oCO2e /
-                                          _totalCO2e *
-                                          100)
+                                  flex: (_n2oCO2e / _totalCO2e * 100)
                                       .round(),
                                   child: Container(
                                     height: 8,
@@ -410,10 +448,9 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                                 ),
                               if (_dieselCO2e > 0)
                                 Expanded(
-                                  flex: (_dieselCO2e /
-                                          _totalCO2e *
-                                          100)
-                                      .round(),
+                                  flex:
+                                      (_dieselCO2e / _totalCO2e * 100)
+                                          .round(),
                                   child: Container(
                                     height: 8,
                                     color: AppColors.warning,
@@ -421,9 +458,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                                 ),
                               if (_elecCO2e > 0)
                                 Expanded(
-                                  flex: (_elecCO2e /
-                                          _totalCO2e *
-                                          100)
+                                  flex: (_elecCO2e / _totalCO2e * 100)
                                       .round(),
                                   child: Container(
                                     height: 8,
@@ -439,7 +474,6 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                 ),
               ),
             ],
-
             // ── Notes ─────────────────────────────────
             SectionHeader(
               title: 'Notes',
@@ -465,11 +499,9 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                 ),
               ),
             ),
-
             // ── IPCC note ─────────────────────────────
             Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: AppFlatCard(
                 padding: const EdgeInsets.all(12),
                 child: Row(
@@ -481,7 +513,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                     Expanded(
                       child: Text(
                         'Emission factors: IPCC 2006 defaults. '
-                        'N₂O EF = 1.25% × N applied × 298 GWP. '
+                        'N₂O EF = 1.25% (synthetic) / 0.8% (organic) × N applied × 298 GWP. '
                         'Diesel = 2.68 kg CO₂e/L. '
                         'Grid = 0.82 kg CO₂e/kWh.',
                         style: AppTextStyles.caption.copyWith(
@@ -493,7 +525,6 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                 ),
               ),
             ),
-
             // ── Save button ───────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
@@ -509,8 +540,7 @@ class _AddEmissionScreenState extends State<AddEmissionScreen> {
                         ),
                       )
                     : const Icon(Icons.eco_outlined, size: 18),
-                label: Text(
-                    _loading ? 'Saving...' : 'Save Emission'),
+                label: Text(_loading ? 'Saving...' : 'Save Emission'),
               ),
             ),
             const SizedBox(height: 12),
@@ -534,7 +564,6 @@ class _PreviewRow extends StatelessWidget {
   final String label;
   final double value;
   final Color color;
-
   const _PreviewRow({
     required this.icon,
     required this.label,
