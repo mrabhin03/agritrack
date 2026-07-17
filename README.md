@@ -102,16 +102,7 @@ Each feature module follows the same internal layout: `models/` (Hive-backed dat
    flutter run
    ```
 
-### Connecting Supabase (optional)
 
-To enable cloud sync, fill in your project credentials in `lib/core/constants/supabase_constants.dart`:
-
-```dart
-static const String supabaseUrl     = 'YOUR_SUPABASE_URL';
-static const String supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
-```
-
-Then uncomment the `Supabase.initialize(...)` block in `lib/main.dart`.
 
 ## 🧮 Emission Methodology
 
