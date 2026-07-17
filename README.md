@@ -4,7 +4,6 @@
 
 AgriTrack helps field agents and agronomists register farmers, track crop seasons and field events, and calculate greenhouse-gas emissions for turmeric cultivation — all fully usable offline in low-connectivity rural areas, with data syncing to the cloud once a connection is available.
 
-> 🌱 Modeled around turmeric farming in Kerala (Idukki / Ernakulam districts), but the data model generalizes to other crops with minor changes to `crop_constants.dart`.
 
 ---
 
@@ -72,7 +71,7 @@ Each feature module follows the same internal layout: `models/` (Hive-backed dat
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/<your-username>/agritrack.git
+   git clone https://github.com/mrabhin03/agritrack.git
    cd agritrack
    ```
 2. Add a `pubspec.yaml` declaring the following dependencies (add versions as appropriate):
@@ -85,7 +84,6 @@ Each feature module follows the same internal layout: `models/` (Hive-backed dat
      hive: ^2.0.0
      hive_flutter: ^1.1.0
      intl: ^0.19.0
-     # supabase_flutter: ^2.0.0   # uncomment when wiring up the backend
 
    dev_dependencies:
      hive_generator: ^2.0.0
