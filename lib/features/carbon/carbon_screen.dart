@@ -291,7 +291,7 @@ class _CarbonScreenState extends ConsumerState<CarbonScreen>
                         TweenAnimationBuilder<double>(
                           tween: Tween(
                               begin: 0, end: summary.totalCo2eKg / 1000),
-                          duration: const Duration(milliseconds: 750),
+                          duration: const Duration(milliseconds: 0),
                           curve: Curves.easeOutCubic,
                           builder: (context, v, _) => Text(
                             '${v.toStringAsFixed(2)} tCO₂e',

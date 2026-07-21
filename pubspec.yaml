@@ -1,7 +1,7 @@
 # pubspec.yaml (project root)
 name: Agritrack
 description: Turmeric field management platform for Kerala agronomists
-version: 3.0.0+1
+version: 3.01.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
