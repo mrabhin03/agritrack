@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:go_router/go_router.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/constants/crop_constants.dart';
@@ -12,6 +13,7 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/section_header.dart';
 import '../farmers/providers/farmers_provider.dart';
+import 'models/plot_model.dart';
 import 'providers/plots_provider.dart';
 
 // ── Shoelace area calculation ─────────────────────────
@@ -61,6 +63,13 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
   Offset? _dragStartScreen;
   bool _useSatellite = false;
 
+  // ── Existing plots overlay ────────────────────────────
+  bool _showExistingPlots = true;
+
+  // ── My Location state ─────────────────────────────────
+  LatLng? _userPosition;
+  bool _locLoading = false;
+
   static const _initialCenter = LatLng(9.297028, 76.670179);
   static const double _hitRadius = 28.0;
 
@@ -76,6 +85,37 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
   void dispose() {
     _nameCtrl.dispose();
     super.dispose();
+  }
+
+  // ── My Location logic ─────────────────────────────────
+  Future<void> _goToMyLocation() async {
+    setState(() => _locLoading = true);
+    try {
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Location permission denied. Enable it in Settings.'),
+          ));
+          await Geolocator.openAppSettings();
+        }
+        return;
+      }
+      if (perm == LocationPermission.whileInUse ||
+          perm == LocationPermission.always) {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        final latLng = LatLng(pos.latitude, pos.longitude);
+        setState(() => _userPosition = latLng);
+        _mapController.move(latLng, 17);
+      }
+    } finally {
+      if (mounted) setState(() => _locLoading = false);
+    }
   }
 
   // ── Validators ────────────────────────────────────────
@@ -191,7 +231,7 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
     ));
   }
 
-  // ── Submit — wired to plotsProvider ──────────────────
+  // ── Submit ────────────────────────────────────────────
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedFarmerId == null) {
@@ -213,7 +253,6 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
 
     setState(() => _loading = true);
     try {
-      // Convert LatLng list → [[lat,lng], ...] for PlotModel
       final boundary = _points
           .map((p) => [p.latitude, p.longitude])
           .toList();
@@ -245,7 +284,8 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
     final farmers =
         farmersAsync.valueOrNull?.where((f) => !f.isDeleted).toList() ?? [];
 
-    // Resolve farmer name for pill display
+    final existingPlots = ref.watch(plotsProvider).valueOrNull ?? [];
+
     final farmerName = _selectedFarmerId != null
         ? farmers
             .where((f) => f.id == _selectedFarmerId)
@@ -282,7 +322,7 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
       body: Column(
         children: [
           // ── Map — 55% ────────────────────────────────
-          Expanded(flex: 5, child: _buildMapSection()),
+          Expanded(flex: 5, child: _buildMapSection(existingPlots)),
           // ── Form — 45%, scrollable ────────────────────
           Expanded(
             flex: 4,
@@ -310,7 +350,6 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Farmer selector ─────────────────────────
           AppCard(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
             child: loadingFarmers
@@ -341,7 +380,6 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
           ),
           const SizedBox(height: 8),
 
-          // ── Plot name + soil + irrigation ─────────────
           AppCard(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
             child: Column(
@@ -413,7 +451,6 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
           ),
           const SizedBox(height: 8),
 
-          // ── Crop + Area info row ──────────────────────
           Row(
             children: [
               Expanded(
@@ -449,7 +486,6 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
           ),
           const SizedBox(height: 10),
 
-          // ── Save / Cancel ─────────────────────────────
           ElevatedButton.icon(
             onPressed: _loading ? null : _submit,
             icon: _loading
@@ -479,7 +515,7 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
   }
 
   // ── Map section ───────────────────────────────────────
-  Widget _buildMapSection() {
+  Widget _buildMapSection(List<PlotModel> existingPlots) {
     return Container(
       decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: AppColors.border))),
@@ -506,12 +542,76 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
                   ),
                   children: [
                     TileLayer(
-  key: ValueKey(_useSatellite),
-  urlTemplate: _useSatellite
-      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  userAgentPackageName: 'com.agritrack',
-),
+                      key: ValueKey(_useSatellite),
+                      urlTemplate: _useSatellite
+                          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.agritrack',
+                    ),
+
+                    // ── Existing plots reference ──────────
+                    if (_showExistingPlots && existingPlots.isNotEmpty)
+                      PolygonLayer(
+                        polygons: existingPlots
+                            .where((p) => p.boundary.length >= 3)
+                            .map(
+                              (p) => Polygon(
+                                points: p.boundary
+                                    .map((pt) => LatLng(pt[0], pt[1]))
+                                    .toList(),
+                                color: const Color(0xFF616161)
+                                    .withOpacity(0.35),
+                                borderColor: const Color(0xFF424242)
+                                    .withOpacity(0.9),
+                                borderStrokeWidth: 2,
+                                isDotted: true,
+                                isFilled: true,
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    if (_showExistingPlots && existingPlots.isNotEmpty)
+                      MarkerLayer(
+                        markers: existingPlots
+                            .where((p) => p.boundary.isNotEmpty)
+                            .map(
+                              (p) => Marker(
+                                point:
+                                    LatLng(p.centroid[0], p.centroid[1]),
+                                width: 110,
+                                height: 26,
+                                child: IgnorePointer(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.surface
+                                          .withOpacity(0.85),
+                                      borderRadius:
+                                          BorderRadius.circular(6),
+                                      border: Border.all(
+                                          color: AppColors.textDisabled
+                                              .withOpacity(0.5)),
+                                    ),
+                                    child: Text(
+                                      p.name,
+                                      style: AppTextStyles.caption
+                                          .copyWith(
+                                        fontSize: 10,
+                                        color: AppColors.textSecondary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+
+                    // ── New plot being drawn ──────────────
                     if (_points.length >= 2)
                       PolygonLayer(polygons: [
                         Polygon(
@@ -533,6 +633,50 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
                         );
                       }).toList(),
                     ),
+
+                    // ── User location marker ──────────────
+                    if (_userPosition != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: _userPosition!,
+                            width: 36,
+                            height: 36,
+                            child: IgnorePointer(
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.18),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: Colors.white, width: 2.5),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.blue.withOpacity(0.4),
+                                          blurRadius: 6,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
 
@@ -554,39 +698,157 @@ class _AddPlotScreenState extends ConsumerState<AddPlotScreen> {
                     child: _MapHintBanner(),
                   ),
 
-                // ── Undo / Clear ──────────────────────────
-                // ── Satellite toggle + Undo / Clear ──────
-Positioned(
-  top: 10,
-  right: 10,
-  child: _MapLayerToggle(
-    isSatellite: _useSatellite,
-    onToggle: () => setState(() => _useSatellite = !_useSatellite),
-  ),
-),
-Positioned(
-  bottom: 10,
-  right: 10,
-  child: Column(children: [
-    _MapIconButton(
-      icon: Icons.undo,
-      tooltip: 'Undo last point',
-      enabled: _points.isNotEmpty && !_loading,
-      onTap: _undoPoint,
-    ),
-    const SizedBox(height: 8),
-    _MapIconButton(
-      icon: Icons.delete_outline,
-      tooltip: 'Clear all points',
-      enabled: _points.isNotEmpty && !_loading,
-      onTap: _clearPoints,
-    ),
-  ]),
-),
+                // ── Existing plots toggle ─────────────────
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: _ExistingPlotsToggle(
+                    count: existingPlots.length,
+                    visible: _showExistingPlots,
+                    onToggle: () => setState(
+                        () => _showExistingPlots = !_showExistingPlots),
+                  ),
+                ),
+
+                // ── Satellite toggle ──────────────────────
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: _MapLayerToggle(
+                    isSatellite: _useSatellite,
+                    onToggle: () =>
+                        setState(() => _useSatellite = !_useSatellite),
+                  ),
+                ),
+
+                // ── My Location button ────────────────────
+                Positioned(
+                  top: 58,
+                  right: 10,
+                  child: GestureDetector(
+                    onTap: _locLoading ? null : _goToMyLocation,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _userPosition != null
+                              ? Colors.blue.withOpacity(0.4)
+                              : AppColors.border,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2))
+                        ],
+                      ),
+                      child: _locLoading
+                          ? const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.blue),
+                            )
+                          : Icon(
+                              _userPosition != null
+                                  ? Icons.my_location_rounded
+                                  : Icons.location_searching_rounded,
+                              size: 18,
+                              color: _userPosition != null
+                                  ? Colors.blue
+                                  : AppColors.textPrimary,
+                            ),
+                    ),
+                  ),
+                ),
+
+                // ── Undo / Clear buttons ──────────────────
+                Positioned(
+                  bottom: 10,
+                  right: 10,
+                  child: Column(children: [
+                    _MapIconButton(
+                      icon: Icons.undo,
+                      tooltip: 'Undo last point',
+                      enabled: _points.isNotEmpty && !_loading,
+                      onTap: _undoPoint,
+                    ),
+                    const SizedBox(height: 8),
+                    _MapIconButton(
+                      icon: Icons.delete_outline,
+                      tooltip: 'Clear all points',
+                      enabled: _points.isNotEmpty && !_loading,
+                      onTap: _clearPoints,
+                    ),
+                  ]),
+                ),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+// ── Existing plots toggle chip ────────────────────────
+class _ExistingPlotsToggle extends StatelessWidget {
+  const _ExistingPlotsToggle({
+    required this.count,
+    required this.visible,
+    required this.onToggle,
+  });
+  final int count;
+  final bool visible;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    if (count == 0) return const SizedBox.shrink();
+    return GestureDetector(
+      onTap: onToggle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: visible
+                ? AppColors.textDisabled.withOpacity(0.6)
+                : AppColors.border,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              visible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+              size: 15,
+              color: visible
+                  ? AppColors.textPrimary
+                  : AppColors.textDisabled,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '$count plotted',
+              style: AppTextStyles.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: visible
+                    ? AppColors.textPrimary
+                    : AppColors.textDisabled,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -613,7 +875,7 @@ class _StatsChip extends StatelessWidget {
   }
 }
 
-// ── Info tile (area / crop display) ──────────────────
+// ── Info tile ─────────────────────────────────────────
 class _InfoTile extends StatelessWidget {
   const _InfoTile(
       {required this.icon, required this.label, required this.child});
@@ -794,7 +1056,8 @@ class _MapIconButton extends StatelessWidget {
     );
   }
 }
-// ── Map layer toggle (satellite ↔ street) ─────────────
+
+// ── Map layer toggle ──────────────────────────────────
 class _MapLayerToggle extends StatelessWidget {
   const _MapLayerToggle({required this.isSatellite, required this.onToggle});
   final bool isSatellite;

@@ -2,8 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'app.dart';
-import 'services/hive_service.dart';
+import 'splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,22 +21,16 @@ Future<void> main() async {
     ),
   );
 
-  // ── Hive: register adapters, open boxes, seed data ──
-  // All logic lives in HiveService — see lib/services/hive_service.dart
-  await HiveService.init();
-
   // ── Supabase init (Layer 7 — not started yet) ───────
-  // Uncomment when real URL + anonKey are available.
   // await Supabase.initialize(
   //   url: SupabaseConstants.supabaseUrl,
   //   anonKey: SupabaseConstants.supabaseAnonKey,
   //   debug: true,
   // );
 
-  // ── Run app ────────────────────────────────────────
   runApp(
     const ProviderScope(
-      child: AgriTrackApp(),
+      child: SplashScreen(),
     ),
   );
 }

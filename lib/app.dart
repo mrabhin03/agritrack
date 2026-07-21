@@ -140,28 +140,33 @@ class NavShell extends StatelessWidget {
       appBar: AppBar(
         title: Row(
           children: [
-            // Logo mark
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Icon(
-                Icons.grass,
-                size: 16,
-                color: AppColors.textOnPrimary,
-              ),
+        // Logo mark
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.asset(
+            'assets/images/logo.png',
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => const Icon(
+              Icons.grass,
+              size: 16,
+              color: AppColors.textOnPrimary,
             ),
-            const SizedBox(width: 8),
-            Text(
-              'AgriTrack',
-              style: AppTextStyles.h2.copyWith(
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          'AgriTrack',
+          style: AppTextStyles.h2.copyWith(
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
         ),
         actions: [
           // Sync status icon — will be driven by connectivityProvider later

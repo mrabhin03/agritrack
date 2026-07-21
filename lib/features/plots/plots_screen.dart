@@ -1,9 +1,11 @@
 // features/plots/plots_screen.dart
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:go_router/go_router.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_card.dart';
@@ -38,6 +40,11 @@ const _plotColors = [
 ];
 Color _colorForIndex(int i) => _plotColors[i % _plotColors.length];
 
+// Cap how many markers/list items get a staggered pop-in delay so a
+// large plot set doesn't push the tail end's animation several
+// seconds out — mirrors the farmers list's stagger cap.
+const int _maxStaggerItems = 10;
+
 // ─────────────────────────────────────────────────────
 class PlotsScreen extends ConsumerStatefulWidget {
   const PlotsScreen({super.key});
@@ -52,8 +59,19 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
   bool _showList = false;
   _MapLayer _activeLayer = _MapLayer.street;
 
+  // ── My Location state ─────────────────────────────
+  LatLng? _userPosition;
+  bool _locLoading = false;
+
   late final AnimationController _detailAnim;
   late final Animation<Offset> _detailSlide;
+  late final Animation<double> _detailScale;
+
+  // ── Chrome entrance (top bar, FAB stack, bottom bar) ─
+  late final AnimationController _entrance;
+  late final Animation<double> _topBarReveal;
+  late final Animation<double> _locBtnReveal;
+  late final Animation<double> _bottomBarReveal;
 
   @override
   void initState() {
@@ -63,12 +81,72 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
     _detailSlide =
         Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
             CurvedAnimation(parent: _detailAnim, curve: Curves.easeOutCubic));
+    _detailScale = Tween<double>(begin: 0.94, end: 1.0).animate(
+        CurvedAnimation(parent: _detailAnim, curve: Curves.easeOutBack));
+
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+    _topBarReveal = CurvedAnimation(
+      parent: _entrance,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeOutCubic),
+    );
+    _locBtnReveal = CurvedAnimation(
+      parent: _entrance,
+      curve: const Interval(0.25, 0.75, curve: Curves.elasticOut),
+    );
+    _bottomBarReveal = CurvedAnimation(
+      parent: _entrance,
+      curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+    );
+
+    // Wait for the first post-frame callback so the reveal doesn't
+    // start ticking mid route-transition (same reasoning as the
+    // farmers screen entrance).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _entrance.forward();
+    });
   }
 
   @override
   void dispose() {
     _detailAnim.dispose();
+    _entrance.dispose();
     super.dispose();
+  }
+
+  // ── My Location logic ─────────────────────────────
+  Future<void> _goToMyLocation() async {
+    setState(() => _locLoading = true);
+    try {
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Location permission denied. Enable it in Settings.'),
+          ));
+          await Geolocator.openAppSettings();
+        }
+        return;
+      }
+      if (perm == LocationPermission.whileInUse ||
+          perm == LocationPermission.always) {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        );
+        final latLng = LatLng(pos.latitude, pos.longitude);
+        setState(() => _userPosition = latLng);
+        _mapController.move(latLng, 15.5);
+      }
+    } finally {
+      if (mounted) setState(() => _locLoading = false);
+    }
   }
 
   void _selectPlot(String id, LatLng center) {
@@ -134,159 +212,274 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
       context: context,
       barrierColor: Colors.black54,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 20, 16, 16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.06),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(20)),
-                  border: Border(bottom: BorderSide(color: AppColors.border)),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.edit_outlined,
-                          color: AppColors.primary, size: 18),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Edit Plot Details', style: AppTextStyles.h3),
-                          Text('Name, soil & irrigation only',
-                              style: AppTextStyles.caption),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => ctx.pop(),
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: const Icon(Icons.close,
-                            size: 14, color: AppColors.textSecondary),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Form
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+        builder: (ctx, setDlg) => TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.9, end: 1.0),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutBack,
+          builder: (context, v, child) =>
+              Transform.scale(scale: v, child: child),
+          child: Dialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 16, 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.06),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
+                    border: Border(bottom: BorderSide(color: AppColors.border)),
+                  ),
+                  child: Row(
                     children: [
-                      _RoundedField(
-                        child: TextFormField(
-                          controller: nameCtrl,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(
-                            labelText: 'Plot Name',
-                            prefixIcon:
-                                Icon(Icons.label_outline, size: 18),
-                            border: InputBorder.none,
-                          ),
-                          validator: (v) => (v == null || v.trim().isEmpty)
-                              ? 'Required'
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _RoundedField(
-                        child: DropdownButtonFormField<String>(
-                          value: soilType,
-                          decoration: const InputDecoration(
-                            labelText: 'Soil Type',
-                            prefixIcon:
-                                Icon(Icons.terrain_outlined, size: 18),
-                            border: InputBorder.none,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          items: soilTypes
-                              .map((s) => DropdownMenuItem(
-                                  value: s, child: Text(s)))
-                              .toList(),
-                          onChanged: (v) =>
-                              setDlg(() => soilType = v ?? soilType),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _RoundedField(
-                        child: DropdownButtonFormField<String>(
-                          value: irrigation,
-                          decoration: const InputDecoration(
-                            labelText: 'Irrigation Method',
-                            prefixIcon: Icon(Icons.water_drop_outlined,
-                                size: 18),
-                            border: InputBorder.none,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          items: irrigationTypes
-                              .map((i) => DropdownMenuItem(
-                                  value: i, child: Text(i)))
-                              .toList(),
-                          onChanged: (v) =>
-                              setDlg(() => irrigation = v ?? irrigation),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      // Read-only note
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 9),
+                        width: 38,
+                        height: 38,
                         decoration: BoxDecoration(
-                          color: AppColors.accent.withOpacity(0.07),
+                          color: AppColors.primary.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: AppColors.accent.withOpacity(0.2)),
                         ),
-                        child: Row(
+                        child: const Icon(Icons.edit_outlined,
+                            color: AppColors.primary, size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.info_outline,
-                                size: 13, color: AppColors.accent),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Boundary & area are read-only. '
-                                'Delete and re-draw to change them.',
-                                style: AppTextStyles.caption.copyWith(
-                                    color: AppColors.accent, height: 1.4),
-                              ),
-                            ),
+                            Text('Edit Plot Details', style: AppTextStyles.h3),
+                            Text('Name, soil & irrigation only',
+                                style: AppTextStyles.caption),
                           ],
+                        ),
+                      ),
+                      _PressableScale(
+                        onTap: () => ctx.pop(),
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: const Icon(Icons.close,
+                              size: 14, color: AppColors.textSecondary),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              // Actions
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                child: Row(
+                // Form
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _RoundedField(
+                          child: TextFormField(
+                            controller: nameCtrl,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: const InputDecoration(
+                              labelText: 'Plot Name',
+                              prefixIcon:
+                                  Icon(Icons.label_outline, size: 18),
+                              border: InputBorder.none,
+                            ),
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Required'
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _RoundedField(
+                          child: DropdownButtonFormField<String>(
+                            value: soilType,
+                            decoration: const InputDecoration(
+                              labelText: 'Soil Type',
+                              prefixIcon:
+                                  Icon(Icons.terrain_outlined, size: 18),
+                              border: InputBorder.none,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            items: soilTypes
+                                .map((s) => DropdownMenuItem(
+                                    value: s, child: Text(s)))
+                                .toList(),
+                            onChanged: (v) =>
+                                setDlg(() => soilType = v ?? soilType),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _RoundedField(
+                          child: DropdownButtonFormField<String>(
+                            value: irrigation,
+                            decoration: const InputDecoration(
+                              labelText: 'Irrigation Method',
+                              prefixIcon: Icon(Icons.water_drop_outlined,
+                                  size: 18),
+                              border: InputBorder.none,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            items: irrigationTypes
+                                .map((i) => DropdownMenuItem(
+                                    value: i, child: Text(i)))
+                                .toList(),
+                            onChanged: (v) =>
+                                setDlg(() => irrigation = v ?? irrigation),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Read-only note
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: AppColors.accent.withOpacity(0.2)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  size: 13, color: AppColors.accent),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Boundary & area are read-only. '
+                                  'Delete and re-draw to change them.',
+                                  style: AppTextStyles.caption.copyWith(
+                                      color: AppColors.accent, height: 1.4),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // Actions
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => ctx.pop(),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.textSecondary,
+                            side: BorderSide(color: AppColors.border),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            if (!formKey.currentState!.validate()) return;
+                            await ref
+                                .read(plotsProvider.notifier)
+                                .updatePlot(plot.id, {
+                              'name': nameCtrl.text.trim(),
+                              'soil_type': soilType,
+                              'irrigation': irrigation,
+                            });
+                            if (!mounted) return;
+                            ctx.pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Plot details updated'),
+                                backgroundColor: AppColors.success,
+                              ),
+                            );
+                            _clearSelection();
+                          },
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('Save Changes'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Delete confirmation ───────────────────────────────
+  void _confirmDelete(BuildContext context, PlotModel plot) {
+    showDialog(
+      context: context,
+      builder: (ctx) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.9, end: 1.0),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutBack,
+        builder: (context, v, child) => Transform.scale(scale: v, child: child),
+        child: Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.elasticOut,
+                  builder: (context, v, child) =>
+                      Transform.scale(scale: v, child: child),
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.delete_outline,
+                        color: AppColors.error, size: 26),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('Delete Plot?', style: AppTextStyles.h3),
+                const SizedBox(height: 8),
+                Text(
+                  '"${plot.name}" will be permanently removed and cannot be recovered.',
+                  style: AppTextStyles.body.copyWith(
+                      color: AppColors.textSecondary, height: 1.5),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
@@ -304,31 +497,25 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      flex: 2,
                       child: ElevatedButton.icon(
                         onPressed: () async {
-                          if (!formKey.currentState!.validate()) return;
                           await ref
                               .read(plotsProvider.notifier)
-                              .updatePlot(plot.id, {
-                            'name': nameCtrl.text.trim(),
-                            'soil_type': soilType,
-                            'irrigation': irrigation,
-                          });
+                              .deletePlot(plot.id);
                           if (!mounted) return;
                           ctx.pop();
+                          _clearSelection();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Plot details updated'),
-                              backgroundColor: AppColors.success,
+                            SnackBar(
+                              content: Text('"${plot.name}" deleted'),
+                              backgroundColor: AppColors.error,
                             ),
                           );
-                          _clearSelection();
                         },
-                        icon: const Icon(Icons.check, size: 16),
-                        label: const Text('Save Changes'),
+                        icon: const Icon(Icons.delete_outline, size: 16),
+                        label: const Text('Delete'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
+                          backgroundColor: AppColors.error,
                           foregroundColor: Colors.white,
                           padding:
                               const EdgeInsets.symmetric(vertical: 13),
@@ -340,97 +527,8 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Delete confirmation ───────────────────────────────
-  void _confirmDelete(BuildContext context, PlotModel plot) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        insetPadding:
-            const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppColors.error.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.delete_outline,
-                    color: AppColors.error, size: 26),
-              ),
-              const SizedBox(height: 16),
-              Text('Delete Plot?', style: AppTextStyles.h3),
-              const SizedBox(height: 8),
-              Text(
-                '"${plot.name}" will be permanently removed and cannot be recovered.',
-                style: AppTextStyles.body.copyWith(
-                    color: AppColors.textSecondary, height: 1.5),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => ctx.pop(),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textSecondary,
-                        side: BorderSide(color: AppColors.border),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        await ref
-                            .read(plotsProvider.notifier)
-                            .deletePlot(plot.id);
-                        if (!mounted) return;
-                        ctx.pop();
-                        _clearSelection();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('"${plot.name}" deleted'),
-                            backgroundColor: AppColors.error,
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.delete_outline, size: 16),
-                      label: const Text('Delete'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.error,
-                        foregroundColor: Colors.white,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        elevation: 0,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -455,8 +553,7 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: plotsAsync.when(
-        loading: () => const Center(
-            child: CircularProgressIndicator(color: AppColors.primary)),
+        loading: () => const Center(child: _MapLoader()),
         error: (e, _) => Center(
             child:
                 Text('Error loading plots: $e', style: AppTextStyles.body)),
@@ -469,7 +566,36 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
               top: MediaQuery.of(context).padding.top + 8,
               left: 12,
               right: 12,
-              child: _buildTopBar(plots),
+              child: AnimatedBuilder(
+                animation: _topBarReveal,
+                child: _buildTopBar(plots),
+                builder: (context, child) {
+                  final v = _topBarReveal.value.clamp(0.0, 1.0);
+                  return Opacity(
+                    opacity: v,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - v) * -16),
+                      child: child,
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // ── My Location button ─────────────────────
+            Positioned(
+              right: 12,
+              top: MediaQuery.of(context).padding.top + 72,
+              child: AnimatedBuilder(
+                animation: _locBtnReveal,
+                builder: (context, _) {
+                  final v = _locBtnReveal.value.clamp(0.0, 1.3);
+                  return Opacity(
+                    opacity: _locBtnReveal.value.clamp(0.0, 1.0),
+                    child: Transform.scale(scale: v, child: _buildLocationButton()),
+                  );
+                },
+              ),
             ),
 
             // Selected plot detail card
@@ -480,17 +606,21 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
                 bottom: bottomPad + 10,
                 child: SlideTransition(
                   position: _detailSlide,
-                  child: _PlotDetailCard(
-                    plot: selectedPlot,
-                    farmerName:
+                  child: ScaleTransition(
+                    scale: _detailScale,
+                    alignment: Alignment.bottomCenter,
+                    child: _PlotDetailCard(
+                      plot: selectedPlot,
+                      farmerName:
+                          farmerNames[selectedPlot.farmerId] ?? 'Unknown',
+                      plotColor: _colorForIndex(selectedIndex),
+                      onClose: _clearSelection,
+                      onView: () => _openPlotSheet(
+                        context,
+                        selectedPlot,
                         farmerNames[selectedPlot.farmerId] ?? 'Unknown',
-                    plotColor: _colorForIndex(selectedIndex),
-                    onClose: _clearSelection,
-                    onView: () => _openPlotSheet(
-                      context,
-                      selectedPlot,
-                      farmerNames[selectedPlot.farmerId] ?? 'Unknown',
-                      _colorForIndex(selectedIndex),
+                        _colorForIndex(selectedIndex),
+                      ),
                     ),
                   ),
                 ),
@@ -502,7 +632,20 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
                 left: 12,
                 right: 12,
                 bottom: bottomPad + 12,
-                child: _buildBottomActions(context, plots),
+                child: AnimatedBuilder(
+                  animation: _bottomBarReveal,
+                  child: _buildBottomActions(context, plots),
+                  builder: (context, child) {
+                    final v = _bottomBarReveal.value.clamp(0.0, 1.0);
+                    return Opacity(
+                      opacity: v,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - v) * 24),
+                        child: child,
+                      ),
+                    );
+                  },
+                ),
               ),
 
             // Plot list sheet
@@ -521,6 +664,60 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ── My location button (with pulse-glow while active) ─
+  Widget _buildLocationButton() {
+    return _LocationButtonGlow(
+      active: _userPosition != null,
+      child: _PressableScale(
+        onTap: _locLoading ? () {} : _goToMyLocation,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.surface.withOpacity(0.97),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _userPosition != null
+                  ? Colors.blue.withOpacity(0.4)
+                  : AppColors.border,
+            ),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.09),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3))
+            ],
+          ),
+          child: _locLoading
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.blue),
+                )
+              : AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  transitionBuilder: (child, anim) => ScaleTransition(
+                    scale: anim,
+                    child: RotationTransition(
+                        turns: Tween<double>(begin: 0.6, end: 1.0).animate(anim),
+                        child: child),
+                  ),
+                  child: Icon(
+                    _userPosition != null
+                        ? Icons.my_location_rounded
+                        : Icons.location_searching_rounded,
+                    key: ValueKey(_userPosition != null),
+                    size: 20,
+                    color: _userPosition != null
+                        ? Colors.blue
+                        : AppColors.textPrimary,
+                  ),
+                ),
         ),
       ),
     );
@@ -551,21 +748,22 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
             ),
             child: Row(
               children: [
-                _StatPill(
+                _AnimatedStatPill(
                     icon: Icons.crop_square_rounded,
-                    value: '${plots.length}',
+                    value: plots.length,
                     label: 'plots',
                     color: AppColors.primary),
                 _dot(),
-                _StatPill(
+                _AnimatedStatPill(
                     icon: Icons.straighten_outlined,
-                    value: totalArea.toStringAsFixed(1),
+                    value: totalArea,
+                    decimals: 1,
                     label: 'ha',
                     color: AppColors.accent),
                 _dot(),
-                _StatPill(
+                _AnimatedStatPill(
                     icon: Icons.people_outline,
-                    value: '$uniqueFarmers',
+                    value: uniqueFarmers,
                     label: 'farmers',
                     color: const Color(0xFF7B61FF)),
                 const Spacer(),
@@ -609,7 +807,7 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
         children: [
           if (plots.isNotEmpty) ...[
             Expanded(
-              child: GestureDetector(
+              child: _PressableScale(
                 onTap: () => setState(() => _showList = true),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -636,34 +834,7 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
             const SizedBox(width: 10),
           ],
           Expanded(
-            child: GestureDetector(
-              onTap: () => context.push('/add-plot'),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                        color: AppColors.primary.withOpacity(0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4))
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.add_location_alt_rounded,
-                        size: 17, color: Colors.white),
-                    const SizedBox(width: 6),
-                    Text('Add Plot',
-                        style: AppTextStyles.label.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-            ),
+            child: _AddPlotButton(onTap: () => context.push('/add-plot')),
           ),
         ],
       ),
@@ -677,6 +848,8 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
     final center = plots.isNotEmpty
         ? LatLng(plots.first.centroid[0], plots.first.centroid[1])
         : const LatLng(9.5916, 76.5222);
+
+    final staggerTotal = math.min(plots.length, _maxStaggerItems);
 
     return FlutterMap(
       mapController: _mapController,
@@ -692,9 +865,6 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
             final plot = e.value;
             final color = isDark ? Colors.white : _colorForIndex(e.key);
             final isSelected = _selectedPlotId == plot.id;
-//             _printLong('plot.id', plot.id);
-//             _printLong('plot.boundary', plot.boundary);
-//             print("\n\n");
             return Polygon(
               points:
                   plot.boundary.map((p) => LatLng(p[0], p[1])).toList(),
@@ -708,9 +878,12 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
         ),
         MarkerLayer(
           markers: plots.asMap().entries.map((e) {
+            final index = e.key;
             final plot = e.value;
-            final color = _colorForIndex(e.key);
+            final color = _colorForIndex(index);
             final isSelected = _selectedPlotId == plot.id;
+            final staggerIndex =
+                index < _maxStaggerItems ? index : _maxStaggerItems - 1;
             return Marker(
               point: LatLng(plot.centroid[0], plot.centroid[1]),
               width: 130,
@@ -718,53 +891,73 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
               child: GestureDetector(
                 onTap: () => _selectPlot(
                     plot.id, LatLng(plot.centroid[0], plot.centroid[1])),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: isSelected ? color : AppColors.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color:
-                            isSelected ? color : color.withOpacity(0.5),
-                        width: isSelected ? 0 : 1.5),
-                    boxShadow: [
-                      BoxShadow(
-                          color: color
-                              .withOpacity(isSelected ? 0.35 : 0.15),
-                          blurRadius: isSelected ? 10 : 5,
-                          offset: const Offset(0, 2))
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                              color:
-                                  isSelected ? Colors.white : color,
-                              shape: BoxShape.circle)),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(plot.name,
-                            style: AppTextStyles.caption.copyWith(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 11,
-                                color: isSelected
-                                    ? Colors.white
-                                    : AppColors.textPrimary),
-                            overflow: TextOverflow.ellipsis),
+                child: _MarkerPopIn(
+                  index: staggerIndex,
+                  total: staggerTotal == 0 ? 1 : staggerTotal,
+                  child: _PulseOnSelect(
+                    isSelected: isSelected,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isSelected ? color : AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: isSelected
+                                ? color
+                                : color.withOpacity(0.5),
+                            width: isSelected ? 0 : 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                              color: color
+                                  .withOpacity(isSelected ? 0.35 : 0.15),
+                              blurRadius: isSelected ? 10 : 5,
+                              offset: const Offset(0, 2))
+                        ],
                       ),
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                  color:
+                                      isSelected ? Colors.white : color,
+                                  shape: BoxShape.circle)),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(plot.name,
+                                style: AppTextStyles.caption.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : AppColors.textPrimary),
+                                overflow: TextOverflow.ellipsis),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
             );
           }).toList(),
         ),
+        // ── User location marker ───────────────────────
+        if (_userPosition != null)
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: _userPosition!,
+                width: 44,
+                height: 44,
+                child: const _PulsingLocationDot(),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -814,7 +1007,7 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
                           fontWeight: FontWeight.w700)),
                 ),
                 const Spacer(),
-                GestureDetector(
+                _PressableScale(
                   onTap: () => setState(() => _showList = false),
                   child: Container(
                     width: 32,
@@ -851,24 +1044,302 @@ class _PlotsScreenState extends ConsumerState<PlotsScreen>
                       final farmerName =
                           farmerNames[plot.farmerId] ?? 'Unknown';
                       final color = _colorForIndex(i);
-                      return _PlotListTile(
-                        plot: plot,
-                        farmerName: farmerName,
-                        plotColor: color,
-                        isSelected: _selectedPlotId == plot.id,
-                        onTap: () => _selectPlot(plot.id,
-                            LatLng(plot.centroid[0], plot.centroid[1])),
-                        onManage: () {
-                          setState(() => _showList = false);
-                          Future.microtask(() => _openPlotSheet(
-                              context, plot, farmerName, color));
-                        },
+                      final staggerIndex =
+                          i < _maxStaggerItems ? i : _maxStaggerItems - 1;
+                      final staggerTotal =
+                          math.min(plots.length, _maxStaggerItems);
+                      return _ListPopIn(
+                        index: staggerIndex,
+                        total: staggerTotal,
+                        child: _ShineSweep(
+                          delay: Duration(
+                              milliseconds:
+                                  550 + staggerIndex.clamp(0, 6) * 90),
+                          borderRadius: 14,
+                          child: _PlotListTile(
+                            plot: plot,
+                            farmerName: farmerName,
+                            plotColor: color,
+                            isSelected: _selectedPlotId == plot.id,
+                            onTap: () => _selectPlot(plot.id,
+                                LatLng(plot.centroid[0], plot.centroid[1])),
+                            onManage: () {
+                              setState(() => _showList = false);
+                              Future.microtask(() => _openPlotSheet(
+                                  context, plot, farmerName, color));
+                            },
+                          ),
+                        ),
                       );
                     },
                   ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Map loading state: soft breathing pin ─────────────
+class _MapLoader extends StatefulWidget {
+  const _MapLoader();
+  @override
+  State<_MapLoader> createState() => _MapLoaderState();
+}
+
+class _MapLoaderState extends State<_MapLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = Curves.easeInOut.transform(_c.value);
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.translate(
+              offset: Offset(0, -6 * t),
+              child: Icon(Icons.location_on,
+                  size: 40,
+                  color: AppColors.primary.withOpacity(0.5 + t * 0.5)),
+            ),
+            const SizedBox(height: 10),
+            Text('Loading plots…', style: AppTextStyles.caption),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ── Marker pop-in: one-shot elastic scale + fade, staggered by index
+class _MarkerPopIn extends StatelessWidget {
+  const _MarkerPopIn(
+      {required this.child, required this.index, required this.total});
+  final Widget child;
+  final int index;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final delay = (index / total).clamp(0.0, 1.0) * 260;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 420 + delay.round()),
+      curve: Curves.elasticOut,
+      builder: (context, v, child) => Opacity(
+        opacity: v.clamp(0.0, 1.0),
+        child: Transform.scale(scale: v, child: child),
+      ),
+      child: child,
+    );
+  }
+}
+
+// ── A short bounce whenever a marker becomes selected ──
+class _PulseOnSelect extends StatefulWidget {
+  const _PulseOnSelect({required this.child, required this.isSelected});
+  final Widget child;
+  final bool isSelected;
+
+  @override
+  State<_PulseOnSelect> createState() => _PulseOnSelectState();
+}
+
+class _PulseOnSelectState extends State<_PulseOnSelect>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 260));
+    if (widget.isSelected) _c.value = 1.0;
+  }
+
+  @override
+  void didUpdateWidget(covariant _PulseOnSelect oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isSelected && !oldWidget.isSelected) {
+      _c.forward(from: 0);
+    } else if (!widget.isSelected) {
+      _c.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final b = _c.value;
+        final bump =
+            b < 1.0 ? 1.0 + Curves.easeOutBack.transform(b) * 0.18 : 1.0;
+        return Transform.scale(
+            scale: widget.isSelected ? bump : 1.0, child: child);
+      },
+      child: widget.child,
+    );
+  }
+}
+
+// ── Pulsing blue location dot ─────────────────────────
+class _PulsingLocationDot extends StatefulWidget {
+  const _PulsingLocationDot();
+  @override
+  State<_PulsingLocationDot> createState() => _PulsingLocationDotState();
+}
+
+class _PulsingLocationDotState extends State<_PulsingLocationDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = _c.value;
+        final ringScale = 0.4 + t * 1.0;
+        final ringOpacity = (1 - t).clamp(0.0, 1.0) * 0.5;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            // Expanding pulse ring
+            Transform.scale(
+              scale: ringScale,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(ringOpacity),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            // Static soft halo
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+            ),
+            // Blue dot
+            Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.4),
+                    blurRadius: 6,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ── Glow wrapper for the My Location button while active ─
+class _LocationButtonGlow extends StatefulWidget {
+  const _LocationButtonGlow({required this.child, required this.active});
+  final Widget child;
+  final bool active;
+
+  @override
+  State<_LocationButtonGlow> createState() => _LocationButtonGlowState();
+}
+
+class _LocationButtonGlowState extends State<_LocationButtonGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1700),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return widget.child;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.withOpacity(0.18 + _c.value * 0.12),
+                blurRadius: 8 + _c.value * 6,
+                spreadRadius: _c.value * 0.5,
+              ),
+            ],
+          ),
+          child: child,
+        );
+      },
+      child: widget.child,
     );
   }
 }
@@ -917,27 +1388,36 @@ class _CropPill extends StatelessWidget {
   }
 }
 
-// ── Stat pill ─────────────────────────────────────────
-class _StatPill extends StatelessWidget {
-  const _StatPill(
-      {required this.icon,
-      required this.value,
-      required this.label,
-      required this.color});
+// ── Stat pill with count-up number animation ──────────
+class _AnimatedStatPill extends StatelessWidget {
+  const _AnimatedStatPill({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+    this.decimals = 0,
+  });
   final IconData icon;
-  final String value;
+  final num value;
   final String label;
   final Color color;
+  final int decimals;
 
   @override
   Widget build(BuildContext context) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(icon, size: 13, color: color),
       const SizedBox(width: 4),
-      Text(value,
+      TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: value.toDouble()),
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutCubic,
+        builder: (context, v, child) => Text(
+          v.toStringAsFixed(decimals),
           style: AppTextStyles.labelLarge.copyWith(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700)),
+              color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+        ),
+      ),
       const SizedBox(width: 2),
       Text(label,
           style: AppTextStyles.caption
@@ -1005,14 +1485,21 @@ class _LayerSwitcher extends StatelessWidget {
                 subtitle: Text(layer.subtitle,
                     style: AppTextStyles.caption),
                 trailing: isActive
-                    ? Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle),
-                        child: const Icon(Icons.check,
-                            size: 13, color: Colors.white))
+                    ? TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: 1),
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.elasticOut,
+                        builder: (context, v, child) =>
+                            Transform.scale(scale: v, child: child),
+                        child: Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                shape: BoxShape.circle),
+                            child: const Icon(Icons.check,
+                                size: 13, color: Colors.white)),
+                      )
                     : null,
                 onTap: () {
                   onLayerChanged(layer);
@@ -1029,7 +1516,7 @@ class _LayerSwitcher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _PressableScale(
       onTap: () => _showPicker(context),
       child: Container(
         width: 44,
@@ -1046,6 +1533,273 @@ class _LayerSwitcher extends StatelessWidget {
             ]),
         child: const Icon(Icons.layers_outlined,
             size: 20, color: AppColors.textPrimary),
+      ),
+    );
+  }
+}
+
+// ── Add Plot button with pulsing glow + bobbing icon ──
+class _AddPlotButton extends StatefulWidget {
+  const _AddPlotButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  State<_AddPlotButton> createState() => _AddPlotButtonState();
+}
+
+class _AddPlotButtonState extends State<_AddPlotButton>
+    with TickerProviderStateMixin {
+  late final AnimationController _glow;
+
+  @override
+  void initState() {
+    super.initState();
+    _glow = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _glow.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _PressableScale(
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _glow,
+        builder: (context, child) {
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary
+                      .withOpacity(0.28 + _glow.value * 0.15),
+                  blurRadius: 8 + _glow.value * 6,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: child,
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _BobbingIcon(
+                child: const Icon(Icons.add_location_alt_rounded,
+                    size: 17, color: Colors.white),
+              ),
+              const SizedBox(width: 6),
+              Text('Add Plot',
+                  style: AppTextStyles.label.copyWith(
+                      color: Colors.white, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Slow vertical bob — keeps a small icon feeling gently "alive" at rest.
+class _BobbingIcon extends StatefulWidget {
+  const _BobbingIcon({required this.child});
+  final Widget child;
+
+  @override
+  State<_BobbingIcon> createState() => _BobbingIconState();
+}
+
+class _BobbingIconState extends State<_BobbingIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      child: widget.child,
+      builder: (context, child) {
+        final dy = math.sin(_c.value * 2 * math.pi) * 2.0;
+        return Transform.translate(offset: Offset(0, dy), child: child);
+      },
+    );
+  }
+}
+
+// Reusable press-scale wrapper.
+class _PressableScale extends StatefulWidget {
+  const _PressableScale({required this.child, required this.onTap});
+  final Widget child;
+  final VoidCallback onTap;
+
+  @override
+  State<_PressableScale> createState() => _PressableScaleState();
+}
+
+class _PressableScaleState extends State<_PressableScale> {
+  double _scale = 1.0;
+
+  void _setScale(double s) => setState(() => _scale = s);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      onTapDown: (_) => _setScale(0.94),
+      onTapUp: (_) => _setScale(1.0),
+      onTapCancel: () => _setScale(1.0),
+      child: AnimatedScale(
+        scale: _scale,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ── Pop-in wrapper for plot list tiles: fade + slide + elastic scale
+class _ListPopIn extends StatelessWidget {
+  const _ListPopIn(
+      {required this.child, required this.index, required this.total});
+  final Widget child;
+  final int index;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeTotal = total <= 0 ? 1 : total;
+    final delayMs = (index / safeTotal).clamp(0.0, 1.0) * 220;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 380 + delayMs.round()),
+      curve: Curves.easeOutCubic,
+      builder: (context, fade, child) {
+        return Opacity(
+          opacity: fade.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, (1 - fade) * 16),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+// One-shot diagonal light sweep, played once after a delay.
+class _ShineSweep extends StatefulWidget {
+  const _ShineSweep({
+    required this.child,
+    required this.delay,
+    this.borderRadius = 12,
+  });
+  final Widget child;
+  final Duration delay;
+  final double borderRadius;
+
+  @override
+  State<_ShineSweep> createState() => _ShineSweepState();
+}
+
+class _ShineSweepState extends State<_ShineSweep>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    Future.delayed(widget.delay, () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(widget.borderRadius),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth.isFinite ? constraints.maxWidth : 0.0;
+          return Stack(
+            children: [
+              widget.child,
+              if (w > 0)
+                AnimatedBuilder(
+                  animation: _c,
+                  builder: (context, _) {
+                    final dx = -w * 0.6 + _c.value * (w * 1.6);
+                    return Positioned(
+                      top: -20,
+                      bottom: -20,
+                      left: dx,
+                      width: w * 0.3,
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: (1 - _c.value).clamp(0.0, 1.0) * 0.35,
+                          child: Transform.rotate(
+                            angle: -0.35,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    Colors.white.withOpacity(0),
+                                    Colors.white.withOpacity(0.45),
+                                    Colors.white.withOpacity(0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1085,7 +1839,7 @@ class _PlotDetailCard extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-  borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1140,7 +1894,7 @@ class _PlotDetailCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      GestureDetector(
+                      _PressableScale(
                         onTap: onClose,
                         child: Container(
                           width: 30,
@@ -1191,7 +1945,7 @@ class _PlotDetailCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   // View details button
-                  GestureDetector(
+                  _PressableScale(
                     onTap: onView,
                     child: Container(
                       width: double.infinity,
@@ -1286,12 +2040,10 @@ class _PlotManageSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Key fix: constrain max height so sheet never overflows screen
     final screenH = MediaQuery.of(context).size.height;
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      // Leave ~15% of screen visible above sheet so user knows they can dismiss
       constraints: BoxConstraints(maxHeight: screenH * 0.85),
       margin: EdgeInsets.fromLTRB(12, 0, 12, bottomPad + 12),
       decoration: BoxDecoration(
@@ -1305,15 +2057,13 @@ class _PlotManageSheet extends StatelessWidget {
               offset: const Offset(0, -4)),
         ],
       ),
-      // ✅ SingleChildScrollView so content scrolls if screen is tiny
       child: ClipRRect(
-  borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(24),
         child: SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Accent bar
               Container(
                 height: 0,
                 decoration: BoxDecoration(
@@ -1321,7 +2071,6 @@ class _PlotManageSheet extends StatelessWidget {
                     borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(24))),
               ),
-              // Handle
               Container(
                 margin: const EdgeInsets.only(top: 10, bottom: 4),
                 width: 40,
@@ -1330,19 +2079,25 @@ class _PlotManageSheet extends StatelessWidget {
                     color: AppColors.border,
                     borderRadius: BorderRadius.circular(2)),
               ),
-              // Header row
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: Row(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                          color: plotColor.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(12)),
-                      child: Icon(Icons.crop_square_rounded,
-                          color: plotColor, size: 22),
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      duration: const Duration(milliseconds: 380),
+                      curve: Curves.elasticOut,
+                      builder: (context, v, child) =>
+                          Transform.scale(scale: v, child: child),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                            color: plotColor.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12)),
+                        child: Icon(Icons.crop_square_rounded,
+                            color: plotColor, size: 22),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1367,7 +2122,7 @@ class _PlotManageSheet extends StatelessWidget {
                         ],
                       ),
                     ),
-                    GestureDetector(
+                    _PressableScale(
                       onTap: () => Navigator.pop(context),
                       child: Container(
                         width: 30,
@@ -1387,14 +2142,11 @@ class _PlotManageSheet extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               const Divider(height: 1),
-        
-              // ── Info tiles ────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Row 1: Area + Soil
                     IntrinsicHeight(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1419,7 +2171,6 @@ class _PlotManageSheet extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // Row 2: Irrigation + Crop
                     IntrinsicHeight(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1443,7 +2194,6 @@ class _PlotManageSheet extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // Row 3: Boundary (full width, optional)
                     if (plot.boundary.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       _SheetInfoTile(
@@ -1458,36 +2208,34 @@ class _PlotManageSheet extends StatelessWidget {
                   ],
                 ),
               ),
-        
               const SizedBox(height: 16),
               const Divider(height: 1),
-        
-              // ── Action buttons ────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Primary: Edit
                     SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: onEdit,
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Edit Plot Details'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
+                      child: _PressableScale(
+                        onTap: onEdit,
+                        child: ElevatedButton.icon(
+                          onPressed: onEdit,
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: const Text('Edit Plot Details'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // Info note
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 9),
@@ -1514,22 +2262,24 @@ class _PlotManageSheet extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // Secondary: Delete
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: onDelete,
-                        icon:
-                            const Icon(Icons.delete_outline, size: 16),
-                        label: const Text('Delete Plot'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.error,
-                          side: BorderSide(
-                              color: AppColors.error.withOpacity(0.4)),
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                      child: _PressableScale(
+                        onTap: onDelete,
+                        child: OutlinedButton.icon(
+                          onPressed: onDelete,
+                          icon:
+                              const Icon(Icons.delete_outline, size: 16),
+                          label: const Text('Delete Plot'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: BorderSide(
+                                color: AppColors.error.withOpacity(0.4)),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
                         ),
                       ),
                     ),
@@ -1571,7 +2321,7 @@ class _SheetInfoTile extends StatelessWidget {
           border: Border.all(color: c.withOpacity(0.15))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min, // ✅ never tries to expand
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(children: [
             Icon(icon, size: 12, color: c),
@@ -1609,7 +2359,7 @@ class _PlotListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _PressableScale(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -1633,7 +2383,6 @@ class _PlotListTile extends StatelessWidget {
         child: IntrinsicHeight(
           child: Row(
             children: [
-              // Left colour bar
               Container(
                 width: 4,
                 decoration: BoxDecoration(
@@ -1643,7 +2392,6 @@ class _PlotListTile extends StatelessWidget {
                       bottomLeft: Radius.circular(14)),
                 ),
               ),
-              // Avatar
               Padding(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 12),
@@ -1664,7 +2412,6 @@ class _PlotListTile extends StatelessWidget {
                   ),
                 ),
               ),
-              // Content
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 11),
@@ -1699,8 +2446,7 @@ class _PlotListTile extends StatelessWidget {
                   ),
                 ),
               ),
-              // Manage button
-              GestureDetector(
+              _PressableScale(
                 onTap: onManage,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -1748,6 +2494,7 @@ class _MiniTag extends StatelessWidget {
     );
   }
 }
+
 void _printLong(String label, Object? value) {
   final str = value.toString();
   const chunkSize = 800;

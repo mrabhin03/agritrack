@@ -17,7 +17,14 @@ class CheckInState {
 
 class CheckInNotifier extends Notifier<CheckInState> {
   @override
-  CheckInState build() => const CheckInState();
+  CheckInState build() {
+    // Auto check-in the moment the app opens / provider is first read.
+    // Layer 7 swap: instead of "now", load the persisted check-in time
+    // (e.g. from Hive/Supabase) so a reopened app shows the original
+    // check-in time rather than resetting it every launch.
+    final now = DateFormat('hh:mm a').format(DateTime.now());
+    return CheckInState(isCheckedIn: true, time: now);
+  }
 
   void checkIn() {
     final now = DateFormat('hh:mm a').format(DateTime.now());

@@ -1,7 +1,7 @@
 # pubspec.yaml (project root)
-name: agritrack
+name: Agritrack
 description: Turmeric field management platform for Kerala agronomists
-version: 2.0.0+1
+version: 3.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -30,7 +30,7 @@ dependencies:
   hive: ^2.2.3
 
   # Location
-  geolocator: ^11.0.0
+  # geolocator: ^11.0.0
   permission_handler: ^11.3.0
 
   # Charts
@@ -45,6 +45,9 @@ dependencies:
   connectivity_plus: ^6.0.3
   flutter_local_notifications: ^22.0.0
   uuid: ^4.3.3
+  flutter_launcher_icons: ^0.14.4
+  geolocator: ^13.0.0
+  flutter_native_splash: ^2.4.1
 
 dev_dependencies:
   flutter_test:
@@ -55,6 +58,13 @@ dev_dependencies:
   mockito: ^5.4.4
   integration_test:
     sdk: flutter
+
+
+flutter_native_splash:
+  color: "#1D5039"
+  android_12:
+    color: "#1D5039"
+
 
 flutter:
   uses-material-design: true
@@ -71,3 +81,21 @@ flutter:
   assets:
     - assets/images/
     - assets/fonts/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/logo.png"
+  min_sdk_android: 21 # android min sdk min:16, default 21
+  web:
+    generate: true
+    image_path: "assets/images/logo.png"
+    background_color: "#FFFFFF"
+    theme_color: "#FFFFFF"
+  windows:
+    generate: true
+    image_path: "assets/images/logo.png"
+    icon_size: 48 # min:48, max:256, default: 48
+  macos:
+    generate: true
+    image_path: "assets/images/logo.png"
