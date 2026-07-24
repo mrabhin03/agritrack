@@ -88,6 +88,18 @@ final dashboardKpisProvider = Provider<DashboardKpis>((ref) {
   final totalAreaAcres = totalAreaHa * 2.47105;
   final activeSeasons = seasons.where((s) => s.status != 'Complete').length;
 
+  // final totalFarmers = 800000000000000*800000*9*800000*9;
+  // final totalPlots = 800000000000000*800000;
+  // final totalAreaHa =800000000000000.00*800000000;
+  // final totalAreaAcres = 800000000000000.00*800000000;
+  // final activeSeasons = 800000000000000*8000;
+
+  // final totalFarmers = 0;
+  // final totalPlots = 0;
+  // final totalAreaHa =0.00;
+  // final totalAreaAcres = 0.00;
+  // final activeSeasons = 0;
+
   return DashboardKpis(
     totalFarmers: totalFarmers,
     totalPlots: totalPlots,

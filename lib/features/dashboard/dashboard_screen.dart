@@ -10,6 +10,109 @@ import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_card.dart';
 import 'providers/dashboard_provider.dart';
 
+
+String Version='3.05';
+
+
+
+String _compactNumber(double value, int decimals) {
+  final abs = value.abs();
+  if (abs == 0) return '0';
+  String format(double v) =>
+      v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(decimals);
+
+  if (abs >= 1e303) return '${format(value / 1e303)}Ct';
+  if (abs >= 1e300) return '${format(value / 1e300)}Nct';
+  if (abs >= 1e297) return '${format(value / 1e297)}Oct';
+  if (abs >= 1e294) return '${format(value / 1e294)}Sct';
+  if (abs >= 1e291) return '${format(value / 1e291)}Sxct';
+  if (abs >= 1e288) return '${format(value / 1e288)}Qct';
+  if (abs >= 1e285) return '${format(value / 1e285)}Qtct';
+  if (abs >= 1e282) return '${format(value / 1e282)}Trct';
+  if (abs >= 1e279) return '${format(value / 1e279)}Doct';
+  if (abs >= 1e276) return '${format(value / 1e276)}Udct';
+  if (abs >= 1e273) return '${format(value / 1e273)}Dcct';
+  if (abs >= 1e270) return '${format(value / 1e270)}Noct';
+  if (abs >= 1e267) return '${format(value / 1e267)}Occt';
+  if (abs >= 1e264) return '${format(value / 1e264)}Spct';
+  if (abs >= 1e261) return '${format(value / 1e261)}Sxct2';
+  if (abs >= 1e258) return '${format(value / 1e258)}Qtct2';
+  if (abs >= 1e255) return '${format(value / 1e255)}Qdct';
+  if (abs >= 1e252) return '${format(value / 1e252)}Trct2';
+  if (abs >= 1e249) return '${format(value / 1e249)}Doct2';
+  if (abs >= 1e246) return '${format(value / 1e246)}Udct2';
+  if (abs >= 1e243) return '${format(value / 1e243)}Dcct2';
+  if (abs >= 1e240) return '${format(value / 1e240)}Noct2';
+  if (abs >= 1e237) return '${format(value / 1e237)}Occt2';
+  if (abs >= 1e234) return '${format(value / 1e234)}Spct2';
+  if (abs >= 1e231) return '${format(value / 1e231)}Sxct3';
+  if (abs >= 1e228) return '${format(value / 1e228)}Qtct3';
+  if (abs >= 1e225) return '${format(value / 1e225)}Qnct';
+  if (abs >= 1e222) return '${format(value / 1e222)}Trct3';
+  if (abs >= 1e219) return '${format(value / 1e219)}Doct3';
+  if (abs >= 1e216) return '${format(value / 1e216)}Udct3';
+  if (abs >= 1e213) return '${format(value / 1e213)}Dcct3';
+  if (abs >= 1e210) return '${format(value / 1e210)}Noct3';
+  if (abs >= 1e207) return '${format(value / 1e207)}Occt3';
+  if (abs >= 1e204) return '${format(value / 1e204)}Spct3';
+  if (abs >= 1e201) return '${format(value / 1e201)}Sxct4';
+  if (abs >= 1e198) return '${format(value / 1e198)}Qtct4';
+  if (abs >= 1e195) return '${format(value / 1e195)}Qnct2';
+  if (abs >= 1e192) return '${format(value / 1e192)}Trct4';
+  if (abs >= 1e189) return '${format(value / 1e189)}Doct4';
+  if (abs >= 1e186) return '${format(value / 1e186)}Udct4';
+  if (abs >= 1e183) return '${format(value / 1e183)}Dcct4';
+  if (abs >= 1e180) return '${format(value / 1e180)}Noct4';
+  if (abs >= 1e177) return '${format(value / 1e177)}Occt4';
+  if (abs >= 1e174) return '${format(value / 1e174)}Spct4';
+  if (abs >= 1e171) return '${format(value / 1e171)}Sxct5';
+  if (abs >= 1e168) return '${format(value / 1e168)}Qtct5';
+  if (abs >= 1e165) return '${format(value / 1e165)}Qnct3';
+  if (abs >= 1e162) return '${format(value / 1e162)}Trct5';
+  if (abs >= 1e159) return '${format(value / 1e159)}Doct5';
+  if (abs >= 1e156) return '${format(value / 1e156)}Udct5';
+  if (abs >= 1e153) return '${format(value / 1e153)}Dcct5';
+  if (abs >= 1e150) return '${format(value / 1e150)}Noct5';
+  if (abs >= 1e147) return '${format(value / 1e147)}Occt5';
+  if (abs >= 1e144) return '${format(value / 1e144)}Spct5';
+  if (abs >= 1e141) return '${format(value / 1e141)}Sxct6';
+  if (abs >= 1e138) return '${format(value / 1e138)}Qtct6';
+  if (abs >= 1e135) return '${format(value / 1e135)}Qnct4';
+  if (abs >= 1e132) return '${format(value / 1e132)}Trct6';
+  if (abs >= 1e129) return '${format(value / 1e129)}Doct6';
+  if (abs >= 1e126) return '${format(value / 1e126)}Udct6';
+  if (abs >= 1e123) return '${format(value / 1e123)}Dcct6';
+  if (abs >= 1e120) return '${format(value / 1e120)}Noct6';
+  if (abs >= 1e117) return '${format(value / 1e117)}Occt6';
+  if (abs >= 1e114) return '${format(value / 1e114)}Spct6';
+  if (abs >= 1e111) return '${format(value / 1e111)}Sxct7';
+  if (abs >= 1e108) return '${format(value / 1e108)}Qtct7';
+  if (abs >= 1e105) return '${format(value / 1e105)}Qnct5';
+  if (abs >= 1e102) return '${format(value / 1e102)}Trct7';
+  if (abs >= 1e100) return '${format(value / 1e100)}Gg';
+  if (abs >= 1e63)  return '${format(value / 1e63)}Vg';
+  if (abs >= 1e60)  return '${format(value / 1e60)}Nvg';
+  if (abs >= 1e57)  return '${format(value / 1e57)}Og';
+  if (abs >= 1e54)  return '${format(value / 1e54)}Spd';
+  if (abs >= 1e51)  return '${format(value / 1e51)}Sxd';
+  if (abs >= 1e48)  return '${format(value / 1e48)}Qnd';
+  if (abs >= 1e45)  return '${format(value / 1e45)}Qtd';
+  if (abs >= 1e42)  return '${format(value / 1e42)}Trd';
+  if (abs >= 1e39)  return '${format(value / 1e39)}Dod';
+  if (abs >= 1e36)  return '${format(value / 1e36)}Ud';
+  if (abs >= 1e33)  return '${format(value / 1e33)}Dc';
+  if (abs >= 1e30)  return '${format(value / 1e30)}No';
+  if (abs >= 1e27)  return '${format(value / 1e27)}Oc';
+  if (abs >= 1e24)  return '${format(value / 1e24)}Sp';
+  if (abs >= 1e21)  return '${format(value / 1e21)}Sx';
+  if (abs >= 1e18)  return '${format(value / 1e18)}Qt';
+  if (abs >= 1e15)  return '${format(value / 1e15)}P';
+  if (abs >= 1e12)  return '${format(value / 1e12)}T';
+  if (abs >= 1e9)   return '${format(value / 1e9)}B';
+  if (abs >= 1e6)   return '${format(value / 1e6)}M';
+  if (abs >= 1e3)   return '${format(value / 1e3)}K';
+  return value.toStringAsFixed(decimals);
+}
 // ── Screen ────────────────────────────────────────────────
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -51,16 +154,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       parent: _entrance,
       curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
     );
-
-    // Don't start the entrance animation synchronously in initState.
-    // Right after the splash screen swaps out, the engine is busy building
-    // a brand-new MaterialApp/router/provider tree — that swap drops frames
-    // (see "Skipped N frames" in the console), and if the controller is
-    // already ticking during that window, several animation frames get
-    // eaten before anything is actually painted, so the entrance looks like
-    // it "jumps" instead of playing smoothly. Waiting for the first post-
-    // frame callback guarantees this widget has actually been laid out and
-    // painted once before the animation starts consuming frames.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entrance.forward();
     });
@@ -134,6 +227,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
             ),
             _PlotOverviewTeaser(reveal: _plotAnim),
             const SizedBox(height: 40),
+
+Padding(
+  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+  child: Column(
+    children: [
+      const Divider(height: 1, thickness: 0.5),
+      const SizedBox(height: 16),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.eco_outlined, size: 13, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            Version,
+            style: AppTextStyles.caption.copyWith(
+              fontFeatures: [const FontFeature.tabularFigures()],
+              letterSpacing: 0.5,
+              color: AppColors.textDisabled,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            width: 3, height: 3,
+            decoration: BoxDecoration(
+              color: AppColors.textDisabled,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text('Software', style: AppTextStyles.caption.copyWith(
+            color: AppColors.textDisabled,
+          )),
+        ],
+      ),
+    ],
+  ),
+),
           ],
         ),
       ),
@@ -200,14 +330,9 @@ class _HeroBanner extends ConsumerStatefulWidget {
 
 class _HeroBannerState extends ConsumerState<_HeroBanner>
     with TickerProviderStateMixin {
-  // Slow "breathing" gradient — the light source drifts across the
-  // banner instead of sitting static.
   late final AnimationController _gradientShift;
-  // Radar-style ping rings around the status dot while checked in.
   late final AnimationController _ping;
-  // One-shot confirm bounce, played the moment isCheckedIn flips true.
   late final AnimationController _confirm;
-  // Slow-drifting decorative blobs behind the banner content.
   late final AnimationController _blobFloat;
 
   bool _prevCheckedIn = false;
@@ -810,19 +935,12 @@ class _ShineSweepState extends State<_ShineSweep>
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
-      // LayoutBuilder wraps the Stack (not the other way around) so that
-      // the Positioned sweep below remains a direct child of Stack —
-      // Positioned requires a Stack as its immediate parent.
       child: LayoutBuilder(
         builder: (context, constraints) {
           final w = constraints.maxWidth.isFinite ? constraints.maxWidth : 0.0;
           return Stack(
             children: [
               widget.child,
-              // Positioned must be a direct child of Stack. AnimatedBuilder
-              // itself has no RenderObject, so it's transparent for this
-              // purpose — but IgnorePointer DOES have one, so it must sit
-              // *inside* Positioned's child, not wrap the AnimatedBuilder.
               if (w > 0)
                 AnimatedBuilder(
                   animation: _c,
@@ -1077,67 +1195,78 @@ class _KpiGrid extends ConsumerWidget {
               child: AppCard(
                 padding: const EdgeInsets.all(16),
                 child: Row(
-                  children: [
-                    _BreathingIcon(
-                      icon: Icons.eco_outlined,
-                      color: AppColors.primary,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Carbon Footprint',
-                              style: AppTextStyles.caption),
-                          const SizedBox(height: 2),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0, end: co2eT),
-                                duration: const Duration(milliseconds: 1200),
-                                curve: Curves.easeOutBack,
-                                builder: (context, value, _) {
-                                  return Text(
-                                    value.toStringAsFixed(1),
-                                    style: AppTextStyles.h1.copyWith(
-                                      color: isNetNegative
-                                          ? AppColors.primary
-                                          : AppColors.warning,
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  );
-                                },
-                              ),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.only(bottom: 3, left: 4),
-                                child: Text(
-                                  'tCO₂e net',
-                                  style: AppTextStyles.caption.copyWith(
-                                      color: AppColors.textSecondary),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+  crossAxisAlignment: CrossAxisAlignment.center,
+  children: [
+    _BreathingIcon(
+      icon: Icons.eco_outlined,
+      color: AppColors.primary,
+    ),
+    const SizedBox(width: 14),
+    // Number + label — takes all remaining space, never pushes badge off
+    Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Carbon Footprint', style: AppTextStyles.caption),
+          const SizedBox(height: 2),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Shrinks font to fit, never overflows
+              Flexible(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(
+                    begin: 0,
+                    end: co2eT
+                  ),
+                  duration: const Duration(milliseconds: 1200),
+                  curve: Curves.easeOutBack,
+                  builder: (context, value, _) {
+                    return FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _compactNumber(value, 1),
+                        style: AppTextStyles.h1.copyWith(
+                          color: isNetNegative
+                              ? AppColors.primary
+                              : AppColors.warning,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    _Breathe(
-                      amount: 0.045,
-                      duration: const Duration(milliseconds: 8700),
-                      child: AppStatusBadge(
-                        label: kpis.isLowEmissions
-                            ? 'Low Emissions'
-                            : 'High Emissions',
-                        variant: kpis.isLowEmissions
-                            ? BadgeVariant.success
-                            : BadgeVariant.warning,
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
+              ),
+              const SizedBox(width: 4),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  'tCO₂e net',
+                  style: AppTextStyles.caption
+                      .copyWith(color: AppColors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+    const SizedBox(width: 10),
+    // Badge pinned to right, never grows or shrinks
+    _Breathe(
+      amount: 0.045,
+      duration: const Duration(milliseconds: 8700),
+      child: AppStatusBadge(
+        label: kpis.isLowEmissions ? 'Low Emissions' : 'High Emissions',
+        variant: kpis.isLowEmissions
+            ? BadgeVariant.success
+            : BadgeVariant.warning,
+      ),
+    ),
+  ],
+),
               ),
             ),
           ),
@@ -1210,6 +1339,7 @@ class _BreathingIconState extends State<_BreathingIcon>
   }
 }
 
+
 class _KpiItem {
   final double value;
   final int decimals;
@@ -1245,50 +1375,70 @@ class _KpiCard extends StatelessWidget {
       ),
     );
 
-    return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AnimatedBuilder(
-            animation: iconAnim,
-            builder: (context, _) {
-              final v = iconAnim.value;
-              return Transform.rotate(
-                angle: (1 - v) * 0.5,
-                child: Transform.scale(
-                  scale: v.clamp(0.0, 1.4),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: item.iconBg,
-                      borderRadius: BorderRadius.circular(8),
+    return SizedBox(
+      height: 110, // ← fixed height so all cards are uniform
+      child: AppCard(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Icon badge — spins + scales in
+            AnimatedBuilder(
+              animation: iconAnim,
+              builder: (context, _) {
+                final v = iconAnim.value;
+                return Transform.rotate(
+                  angle: (1 - v) * 0.5,
+                  child: Transform.scale(
+                    scale: v.clamp(0.0, 1.4),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: item.iconBg,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(item.icon, size: 16, color: item.iconColor),
                     ),
-                    child: Icon(item.icon, size: 16, color: item.iconColor),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
+
+            // Number — counts up, compact-formatted, shrinks to fit
+            // Number — counts up, compact-formatted, shrinks to fit
+TweenAnimationBuilder<double>(
+  tween: Tween(begin: 0, end: item.value),
+  duration: const Duration(milliseconds: 1000),
+  curve: Curves.easeOutBack,
+  builder: (context, value, _) {
+    return SizedBox(
+      width: double.infinity,   // ← always fills card width
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(
+          _compactNumber(value, item.decimals),
+          style: AppTextStyles.h2.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
           ),
-          const SizedBox(height: 10),
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: item.value),
-            duration: const Duration(milliseconds: 1000),
-            curve: Curves.easeOutBack,
-            builder: (context, value, _) {
-              return Text(
-                value.toStringAsFixed(item.decimals),
-                style: AppTextStyles.h2.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 2),
-          Text(item.label, style: AppTextStyles.caption),
-        ],
+        ),
+      ),
+    );
+  },
+),
+
+            // Label
+            Text(
+              item.label,
+              style: AppTextStyles.caption,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }

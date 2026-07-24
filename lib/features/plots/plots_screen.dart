@@ -2495,11 +2495,3 @@ class _MiniTag extends StatelessWidget {
   }
 }
 
-void _printLong(String label, Object? value) {
-  final str = value.toString();
-  const chunkSize = 800;
-  print('── $label ──');
-  for (int i = 0; i < str.length; i += chunkSize) {
-    print(str.substring(i, (i + chunkSize).clamp(0, str.length)));
-  }
-}
